@@ -1,5 +1,7 @@
 import Group from "../models/group.js";
 import User from "../models/user.js";
+import Expense from "../models/expense.js";
+import { calculateGroupBalances } from "../utils/balance.js";
 
 // Create a new group
 export const createGroup = async (req, res) => {
@@ -87,4 +89,39 @@ export const addMemberToGroup = async (req, res) => {
     groupId: group._id,
     memberId: userToAdd._id
   });
+};
+
+// Leave a group
+export const leaveGroup = async (req, res) => {
+  const { groupId } = req.params;
+
+  const group = await Group.findById(groupId);
+  if (!group) {
+    return res.status(404).json({ message: "Group not found" });
+  }
+
+  if (!group.members.includes(req.user._id)) {
+    return res.status(403).json({ message: "You are not a member of this group" });
+  }
+
+  const expenses = await Expense.find({ group: groupId });
+  const balances = calculateGroupBalances(group, expenses);
+
+  const userBalance = balances[req.user._id.toString()];
+
+  if (userBalance !== 0) {
+    return res.status(400).json({
+      message: "You must settle all balances before leaving the group",
+      balance: userBalance
+    });
+  }
+
+  // Remove user from group
+  group.members = group.members.filter(
+    memberId => memberId.toString() !== req.user._id.toString()
+  );
+
+  await group.save();
+
+  res.json({ message: "You have left the group successfully" });
 };
