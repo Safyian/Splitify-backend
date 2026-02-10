@@ -125,3 +125,105 @@ export const leaveGroup = async (req, res) => {
 
   res.json({ message: "You have left the group successfully" });
 };
+
+// Get summary of all groups for the authenticated user
+export const getGroupsSummary = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+
+    const groups = await Group.find({
+      members: userId
+    });
+
+    const summaries = [];
+
+    for (const group of groups) {
+
+      // Get expenses for the group
+      const expenses = await Expense.find({ group: group._id });
+
+      // Calculate balances (in cents) 
+      const balances = calculateGroupBalances(group, expenses);
+
+      const myNet = balances[userId] || 0;
+
+      // Fetch member names 
+      const members = await User.find({
+        _id: { $in: group.members }
+      }).select("name");
+
+      const nameMap = {};
+      members.forEach(u => {
+        nameMap[u._id.toString()] = u.name;
+      });
+
+      let preview = [];
+
+      // Build pairwise preview for the user
+      Object.entries(balances).forEach(([uid, net]) => {
+        if (uid === userId) return;
+        if (net === 0) return;
+
+        const name = nameMap[uid] || "Someone";
+
+        // pairwise relation amount (in cents)
+        const relationAmount =
+          Math.min(Math.abs(myNet), Math.abs(net));
+
+        if (relationAmount === 0) return;
+
+        // If I am owed and they owe 
+        if (myNet > 0 && net < 0) {
+          preview.push({
+            userId: uid,
+            name,
+            amount: relationAmount / 100,
+            direction: "you_receive"
+          });
+        }
+
+        // If I owe and they are owed
+        if (myNet < 0 && net > 0) {
+          preview.push({
+            userId: uid,
+            name,
+            amount: relationAmount / 100,
+            direction: "you_pay"
+          });
+        }
+      });
+
+      // Sort biggest first and limit to 2 for preview
+      preview.sort((a, b) => b.amount - a.amount);
+
+      const limitedPreview = preview.slice(0, 2);
+
+      // Determine status based on net balance
+      const netDollars = myNet / 100;
+
+      let status = "settled";
+      if (netDollars > 0) status = "you_are_owed";
+      if (netDollars < 0) status = "you_owe";
+
+      // Push summary for this group
+      summaries.push({
+        _id: group._id,
+        name: group.name,
+
+        balance: {
+          net: netDollars,
+          status
+        },
+
+        preview: limitedPreview,
+        othersCount: Math.max(0, preview.length - 2)
+      });
+    }
+
+    res.json(summaries);
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+

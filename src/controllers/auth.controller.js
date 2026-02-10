@@ -73,3 +73,16 @@ export const logout = async (req, res) => {
   });
 };
 
+// ===============================
+// GET CURRENT USER
+// ===============================  
+export const getMe = async (req, res) => {
+  res.json({
+    valid: true,
+    user: {
+      id: req.user._id,
+      email: req.user.email,
+      name: req.user.name
+    }
+  });
+};
