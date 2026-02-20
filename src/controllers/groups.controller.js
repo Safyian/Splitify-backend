@@ -227,3 +227,38 @@ export const getGroupsSummary = async (req, res) => {
   }
 };
 
+// Get members of a group
+export const getGroupMembers = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+
+    const group = await Group.findById(groupId)
+      .populate("members", "name email");
+
+    if (!group) {
+      return res.status(404).json({ message: "Group not found" });
+    }
+
+    // Only members of the group can fetch member list
+    const isMember = group.members.some(
+      m => m._id.toString() === req.user._id.toString()
+    );
+
+    // If not a member, return 403 Forbidden
+    if (!isMember) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    // Map members to a simpler format
+    const members = group.members.map(m => ({
+      id: m._id,
+      name: m.name,
+      email: m.email
+    }));
+
+    res.status(200).json({ members });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
