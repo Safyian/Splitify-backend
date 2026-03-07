@@ -7,25 +7,30 @@ const groupSchema = new mongoose.Schema(
       required: true,
       trim: true
     },
-
+    emoji: {
+      type: String,
+      default: "🏠"
+    },
+    defaultSplitType: {
+      type: String,
+      enum: ["equal", "exact", "percentage"],
+      default: "equal"
+    },
     members: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User"
       }
     ],
-
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true
     },
-
     settledAt: {
-    type: Date,
-    default: null
+      type: Date,
+      default: null
     }
-
   },
   { timestamps: true }
 );

@@ -3,75 +3,84 @@
 ===================================== */
 
 // Equal splits
+// export const calculateEqualSplits = (amount, splits) => {
+//   const totalCents = Math.round(amount * 100);
+
+//   const base = Math.floor(totalCents / splits.length);
+//   let remainder = totalCents % splits.length;
+
+//   return splits.map(s => {
+//     let share = base;
+
+//     if (remainder > 0) {
+//       share += 1;
+//       remainder--;
+//     }
+
+//     return {
+//       user: s.user,
+//       amount: share / 100
+//     };
+//   });
+// };
 export const calculateEqualSplits = (amount, splits) => {
   const totalCents = Math.round(amount * 100);
+  const perPerson = Math.floor(totalCents / splits.length);
+  const remainder = totalCents - perPerson * splits.length;
 
-  const base = Math.floor(totalCents / splits.length);
-  let remainder = totalCents % splits.length;
-
-  return splits.map(s => {
-    let share = base;
-
-    if (remainder > 0) {
-      share += 1;
-      remainder--;
-    }
-
-    return {
-      user: s.user,
-      amount: share / 100
-    };
-  });
+  return splits.map((split, i) => ({
+    user: split.user,
+    amount: (perPerson + (i < remainder ? 1 : 0)) / 100,
+    percentage: null  // ✅ explicitly null for equal splits
+  }));
 };
 
 // Percentage-based splits
 export const calculatePercentageSplits = (amount, splits) => {
   const totalCents = Math.round(amount * 100);
 
-  const centsSplits = splits.map(s => ({
-    user: s.user,
-    cents: Math.floor((totalCents * s.percentage) / 100)
-  }));
+  const calculated = splits.map(split => {
+    const cents = Math.floor(totalCents * (split.percentage / 100));
+    return {
+      user: split.user,
+      amount: cents,
+      percentage: split.percentage  // ✅ store it
+    };
+  });
 
-  let distributed = centsSplits.reduce((a,b)=>a+b.cents,0);
+  // Distribute remainder cents
+  const distributed = calculated.reduce((sum, s) => sum + s.amount, 0);
   let remainder = totalCents - distributed;
 
-  for (let i = 0; remainder > 0; i++) {
-    centsSplits[i % centsSplits.length].cents++;
+  let i = 0;
+  while (remainder > 0) {
+    calculated[i % calculated.length].amount += 1;
     remainder--;
+    i++;
   }
 
-  return centsSplits.map(s => ({
+  return calculated.map(s => ({
     user: s.user,
-    amount: s.cents / 100
+    amount: s.amount / 100,
+    percentage: s.percentage  // ✅ preserve after remainder distribution
   }));
 };
 
 // Exact amount splits
 export const calculateExactSplits = (amount, splits) => {
-
   const totalCents = Math.round(amount * 100);
+  const splitCents = splits.map(s => Math.round(s.amount * 100));
+  const splitTotal = splitCents.reduce((sum, c) => sum + c, 0);
 
-  let sumCents = 0;
-
-  const centsSplits = splits.map(s => {
-    const cents = Math.round(s.amount * 100);
-    sumCents += cents;
-
-    return {
-      user: s.user,
-      cents
-    };
-  });
-
-  if (sumCents !== totalCents) {
+  if (splitTotal !== totalCents) {
     throw new Error(
-      `Split amounts (${sumCents/100}) do not equal total (${amount})`
+      `Exact splits (${splitTotal / 100}) must equal total (${amount})`
     );
   }
 
-  return centsSplits.map(s => ({
-    user: s.user,
-    amount: s.cents / 100
+  return splits.map((split, i) => ({
+    user: split.user,
+    amount: splitCents[i] / 100,
+    percentage: null  // ✅ explicitly null for exact splits
   }));
 };

@@ -25,6 +25,13 @@ const expenseSchema = new mongoose.Schema(
       required: true
     },
 
+    splitType: {
+      type: String,
+      enum: ["equal", "exact", "percentage"],
+      required: true,
+      default: "equal"
+    },
+
     splits: [
       {
         user: {
@@ -35,6 +42,10 @@ const expenseSchema = new mongoose.Schema(
         amount: {
           type: Number,
           required: true
+        },
+        percentage: {
+          type: Number,
+          default: null  // only set for percentage split type
         }
       }
     ]

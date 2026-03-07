@@ -1,7 +1,7 @@
 import Group from "../models/group.js";
 import User from "../models/user.js";
 import Expense from "../models/expense.js";
-import { calculateGroupBalances } from "../utils/balance.js";
+import { calculateGroupBalances, simplifyDebts } from "../utils/balance.js";
 
 // Create a new group
 export const createGroup = async (req, res) => {
@@ -20,6 +20,8 @@ export const createGroup = async (req, res) => {
   res.status(201).json({
     id: group._id,
     name: group.name,
+    emoji: group.emoji,
+    defaultSplitType: group.defaultSplitType,
     members: group.members,
     createdBy: group.createdBy,
     createdAt: group.createdAt
@@ -54,18 +56,15 @@ export const addMemberToGroup = async (req, res) => {
     return res.status(400).json({ message: "Email is required" });
   }
 
-  // 1. Find the group
   const group = await Group.findById(groupId);
   if (!group) {
     return res.status(404).json({ message: "Group not found" });
   }
 
-  // 2. Only members can add others
   if (!group.members.includes(req.user._id)) {
     return res.status(403).json({ message: "Not authorized to add members" });
   }
 
-  // 3. Find user by email
   const userToAdd = await User.findOne({ email });
   if (!userToAdd) {
     return res.status(404).json({
@@ -73,14 +72,12 @@ export const addMemberToGroup = async (req, res) => {
     });
   }
 
-  // 4. Prevent duplicates
   if (group.members.includes(userToAdd._id)) {
     return res.status(400).json({
       message: "User already a member of the group"
     });
   }
 
-  // 5. Add user
   group.members.push(userToAdd._id);
   await group.save();
 
@@ -106,7 +103,6 @@ export const leaveGroup = async (req, res) => {
 
   const expenses = await Expense.find({ group: groupId });
   const balances = calculateGroupBalances(group, expenses);
-
   const userBalance = balances[req.user._id.toString()];
 
   if (userBalance !== 0) {
@@ -116,7 +112,6 @@ export const leaveGroup = async (req, res) => {
     });
   }
 
-  // Remove user from group
   group.members = group.members.filter(
     memberId => memberId.toString() !== req.user._id.toString()
   );
@@ -131,23 +126,15 @@ export const getGroupsSummary = async (req, res) => {
   try {
     const userId = req.user._id.toString();
 
-    const groups = await Group.find({
-      members: userId
-    });
+    const groups = await Group.find({ members: userId });
 
     const summaries = [];
 
     for (const group of groups) {
-
-      // Get expenses for the group
       const expenses = await Expense.find({ group: group._id });
-
-      // Calculate balances (in cents) 
       const balances = calculateGroupBalances(group, expenses);
-
       const myNet = balances[userId] || 0;
 
-      // Fetch member names 
       const members = await User.find({
         _id: { $in: group.members }
       }).select("name");
@@ -159,20 +146,15 @@ export const getGroupsSummary = async (req, res) => {
 
       let preview = [];
 
-      // Build pairwise preview for the user
       Object.entries(balances).forEach(([uid, net]) => {
         if (uid === userId) return;
         if (net === 0) return;
 
         const name = nameMap[uid] || "Someone";
-
-        // pairwise relation amount (in cents)
-        const relationAmount =
-          Math.min(Math.abs(myNet), Math.abs(net));
+        const relationAmount = Math.min(Math.abs(myNet), Math.abs(net));
 
         if (relationAmount === 0) return;
 
-        // If I am owed and they owe 
         if (myNet > 0 && net < 0) {
           preview.push({
             userId: uid,
@@ -182,7 +164,6 @@ export const getGroupsSummary = async (req, res) => {
           });
         }
 
-        // If I owe and they are owed
         if (myNet < 0 && net > 0) {
           preview.push({
             userId: uid,
@@ -193,29 +174,21 @@ export const getGroupsSummary = async (req, res) => {
         }
       });
 
-      // Sort biggest first and limit to 2 for preview
       preview.sort((a, b) => b.amount - a.amount);
 
-      const limitedPreview = preview.slice(0, 2);
-
-      // Determine status based on net balance
       const netDollars = myNet / 100;
-
       let status = "settled";
       if (netDollars > 0) status = "you_are_owed";
       if (netDollars < 0) status = "you_owe";
 
-      // Push summary for this group
       summaries.push({
         _id: group._id,
         name: group.name,
-
-        balance: {
-          net: netDollars,
-          status
-        },
-
-        preview: limitedPreview,
+        emoji: group.emoji ?? "🏠",
+        defaultSplitType: group.defaultSplitType ?? "equal",
+        createdBy: group.createdBy.toString(),
+        balance: { net: netDollars, status },
+        preview: preview.slice(0, 2),
         othersCount: Math.max(0, preview.length - 2)
       });
     }
@@ -239,17 +212,14 @@ export const getGroupMembers = async (req, res) => {
       return res.status(404).json({ message: "Group not found" });
     }
 
-    // Only members of the group can fetch member list
     const isMember = group.members.some(
       m => m._id.toString() === req.user._id.toString()
     );
 
-    // If not a member, return 403 Forbidden
     if (!isMember) {
       return res.status(403).json({ message: "Not authorized" });
     }
 
-    // Map members to a simpler format
     const members = group.members.map(m => ({
       id: m._id,
       name: m.name,
@@ -257,6 +227,253 @@ export const getGroupMembers = async (req, res) => {
     }));
 
     res.status(200).json({ members });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ── NEW: Get group settings ────────────────────────────────────────────────────
+export const getGroupSettings = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+
+    const group = await Group.findById(groupId)
+      .populate("members", "name email")
+      .populate("createdBy", "name");
+
+    if (!group) {
+      return res.status(404).json({ message: "Group not found" });
+    }
+
+    const isMember = group.members.some(
+      m => m._id.toString() === req.user._id.toString()
+    );
+
+    if (!isMember) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    res.json({
+      id: group._id,
+      name: group.name,
+      emoji: group.emoji ?? "🏠",
+      defaultSplitType: group.defaultSplitType ?? "equal",
+      createdBy: {
+        id: group.createdBy._id,
+        name: group.createdBy.name
+      },
+      members: group.members.map(m => ({
+        id: m._id,
+        name: m.name,
+        email: m.email
+      })),
+      createdAt: group.createdAt
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ── NEW: Rename group ─────────────────────────────────────────────────────────
+export const renameGroup = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { name } = req.body;
+
+    if (!name || name.trim() === "") {
+      return res.status(400).json({ message: "Group name is required" });
+    }
+
+    const group = await Group.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: "Group not found" });
+    }
+
+    const isMember = group.members.some(
+      m => m.toString() === req.user._id.toString()
+    );
+    if (!isMember) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    group.name = name.trim();
+    await group.save();
+
+    res.json({ message: "Group renamed successfully", name: group.name });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ── NEW: Update group emoji ────────────────────────────────────────────────────
+export const updateGroupEmoji = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { emoji } = req.body;
+
+    if (!emoji) {
+      return res.status(400).json({ message: "Emoji is required" });
+    }
+
+    const group = await Group.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: "Group not found" });
+    }
+
+    const isMember = group.members.some(
+      m => m.toString() === req.user._id.toString()
+    );
+    if (!isMember) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    group.emoji = emoji;
+    await group.save();
+
+    res.json({ message: "Emoji updated successfully", emoji: group.emoji });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ── NEW: Update default split type ────────────────────────────────────────────
+export const updateDefaultSplitType = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { defaultSplitType } = req.body;
+
+    const valid = ["equal", "exact", "percentage"];
+    if (!valid.includes(defaultSplitType)) {
+      return res.status(400).json({
+        message: "Invalid split type. Must be equal, exact, or percentage"
+      });
+    }
+
+    const group = await Group.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: "Group not found" });
+    }
+
+    const isMember = group.members.some(
+      m => m.toString() === req.user._id.toString()
+    );
+    if (!isMember) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    group.defaultSplitType = defaultSplitType;
+    await group.save();
+
+    res.json({
+      message: "Default split type updated",
+      defaultSplitType: group.defaultSplitType
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ── NEW: Remove a member from a group ─────────────────────────────────────────
+export const removeMemberFromGroup = async (req, res) => {
+  try {
+    const { groupId, memberId } = req.params;
+
+    const group = await Group.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: "Group not found" });
+    }
+
+    // Only the creator can remove members
+    if (group.createdBy.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        message: "Only the group creator can remove members"
+      });
+    }
+
+    // Cannot remove yourself — use leaveGroup instead
+    if (memberId === req.user._id.toString()) {
+      return res.status(400).json({
+        message: "Use the leave group option to remove yourself"
+      });
+    }
+
+    // Cannot remove the creator
+    if (memberId === group.createdBy.toString()) {
+      return res.status(400).json({
+        message: "Cannot remove the group creator"
+      });
+    }
+
+    const isMember = group.members.some(
+      m => m.toString() === memberId
+    );
+    if (!isMember) {
+      return res.status(404).json({ message: "Member not found in group" });
+    }
+
+    // Balance guard — member must be fully settled before removal
+    const expenses = await Expense.find({ group: groupId });
+    const balances = calculateGroupBalances(group, expenses);
+    const memberBalance = balances[memberId] ?? 0;
+
+    if (memberBalance !== 0) {
+      return res.status(400).json({
+        message: "Member has unsettled balances and cannot be removed",
+        balance: memberBalance / 100
+      });
+    }
+
+    group.members = group.members.filter(
+      m => m.toString() !== memberId
+    );
+
+    await group.save();
+
+    res.json({ message: "Member removed successfully" });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ── NEW: Delete a group ────────────────────────────────────────────────────────
+export const deleteGroup = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+
+    const group = await Group.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: "Group not found" });
+    }
+
+    // Only the creator can delete the group
+    if (group.createdBy.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        message: "Only the group creator can delete the group"
+      });
+    }
+
+    // All members must be fully settled
+    const expenses = await Expense.find({ group: groupId });
+    const balances = calculateGroupBalances(group, expenses);
+
+    const hasUnsettled = Object.values(balances).some(b => b !== 0);
+    if (hasUnsettled) {
+      return res.status(400).json({
+        message: "All balances must be settled before deleting the group"
+      });
+    }
+
+    // Delete all expenses in the group, then the group itself
+    await Expense.deleteMany({ group: groupId });
+    await Group.findByIdAndDelete(groupId);
+
+    res.json({ message: "Group deleted successfully" });
 
   } catch (err) {
     res.status(500).json({ message: err.message });

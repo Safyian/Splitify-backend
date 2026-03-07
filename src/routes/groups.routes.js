@@ -1,21 +1,40 @@
 import express from "express";
-import { createGroup, getMyGroups, addMemberToGroup, leaveGroup, getGroupsSummary, getGroupMembers} from "../controllers/groups.controller.js";
-import protect from '../middleware/auth.middleware.js';
+import {
+  createGroup,
+  getMyGroups,
+  addMemberToGroup,
+  leaveGroup,
+  getGroupsSummary,
+  getGroupMembers,
+  getGroupSettings,
+  renameGroup,
+  updateGroupEmoji,
+  updateDefaultSplitType,
+  removeMemberFromGroup,
+  deleteGroup,
+} from "../controllers/groups.controller.js";
+import protect from "../middleware/auth.middleware.js";
 
 const router = express.Router();
-// Create a new group
+
+// ── Static routes first ───────────────────────────────────────────────────────
 router.post("/groups/new", protect, createGroup);
-// Get all groups for the authenticated user
 router.get("/groups", protect, getMyGroups);
-// Get summary of all groups for the authenticated user
 router.get("/groups/summary", protect, getGroupsSummary);
 
-
-// Add a member to a group
+// ── Member routes ─────────────────────────────────────────────────────────────
 router.post("/groups/:groupId/members", protect, addMemberToGroup);
-// Leave a group
-router.post("/groups/:groupId/leave", protect, leaveGroup);
-// Get members of a group
+router.delete("/groups/:groupId/members/:memberId", protect, removeMemberFromGroup);
 router.get("/groups/:groupId/members", protect, getGroupMembers);
+
+// ── Settings routes ───────────────────────────────────────────────────────────
+router.get("/groups/:groupId/settings", protect, getGroupSettings);
+router.patch("/groups/:groupId/name", protect, renameGroup);
+router.patch("/groups/:groupId/emoji", protect, updateGroupEmoji);
+router.patch("/groups/:groupId/settings/split-type", protect, updateDefaultSplitType);
+
+// ── Broad routes last ─────────────────────────────────────────────────────────
+router.post("/groups/:groupId/leave", protect, leaveGroup);
+router.delete("/groups/:groupId", protect, deleteGroup);
 
 export default router;
