@@ -13,6 +13,7 @@ import {
   validatePercentages,
   validateExactSplits
 } from "../validators/expense.validator.js";
+import { logActivity } from '../utils/activity.helper.js';
 
 
 // ── Shared helper ─────────────────────────────────────────── ← ✅ FIRST
@@ -78,6 +79,15 @@ export const createExpense = async (req, res) => {
       splits: finalSplits
     });
 
+    await logActivity({
+    type: 'expense_added',
+    actor: req.user,
+    group,                         // the Group document you already fetched
+      metadata: {
+      description: expense.description,
+      amount: expense.amount / 100,
+      },
+    });
     res.status(201).json(expense);
 
   } catch (err) {
@@ -113,38 +123,6 @@ export const getGroupExpenses = async (req, res) => {
   }
 };
 
-// ── Get group balances ────────────────────────────────────────
-// export const getGroupBalances = async (req, res) => {
-//   try {
-//     const { groupId } = req.params;
-
-//     const group = await Group.findById(groupId);
-//     if (!group) return res.status(404).json({ message: "Group not found" });
-
-//     // ✅ .some() instead of .includes()
-//     if (!group.members.some(m => m.toString() === req.user._id.toString())) {
-//       return res.status(403).json({ message: "Not authorized" });
-//     }
-
-//     const expenses = await Expense.find({ group: groupId })
-//       .populate("paidBy")
-//       .populate("splits.user");
-
-//     const balancesCents = calculateGroupBalances(group, expenses);
-//     const settlements = simplifyDebts(balancesCents);
-
-//     const balances = Object.entries(balancesCents).map(([userId, cents]) => ({
-//       userId,
-//       net: cents / 100
-//     }));
-
-//     res.json({ balances, settlements });
-
-//   } catch (err) {
-//     res.status(500).json({ message: err.message });
-//   }
-// };
-// ── Get group balances ────────────────────────────────────────
 export const getGroupBalances = async (req, res) => {
   try {
     const { groupId } = req.params;
@@ -327,6 +305,18 @@ export const settleUp = async (req, res) => {
       { path: "splits.user", select: "name email" }
     ]);
 
+    const toUser = await User.findById(req.body.to).select('name');
+
+      await logActivity({
+        type: 'settlement_made',
+        actor: req.user,
+        group,
+        metadata: {
+          amount: req.body.amount,
+          toName: toUser?.name ?? 'someone',
+          toId: req.body.to,
+        },
+});
     res.status(201).json({
       message: "Settlement recorded successfully",
       settlement
@@ -400,7 +390,15 @@ check.splits.forEach(s => {
 
 
       ///
-
+    await logActivity({
+    type: 'expense_updated',
+    actor: req.user,
+    group,
+    metadata: {
+    description: expense.description,
+    amount: expense.amount / 100,
+    },  
+    });
     res.status(200).json(updatedExpense);
 
   } catch (err) {

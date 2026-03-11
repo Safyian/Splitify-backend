@@ -1,20 +1,27 @@
 import Group from "../models/group.js";
 import User from "../models/user.js";
 import Expense from "../models/expense.js";
-import { calculateGroupBalances, simplifyDebts } from "../utils/balance.js";
+import { calculateGroupBalances } from "../utils/balance.js";
+import { logActivity } from '../utils/activity.helper.js';
 
-// Create a new group
 export const createGroup = async (req, res) => {
   const { name } = req.body;
 
-  if (!name || name.trim() === "") {
-    return res.status(400).json({ message: "Group name is required" });
+  if (!name || name.trim() === '') {
+    return res.status(400).json({ message: 'Group name is required' });
   }
 
   const group = await Group.create({
     name: name.trim(),
     members: [req.user._id],
-    createdBy: req.user._id
+    createdBy: req.user._id,
+  });
+
+  await logActivity({
+    type: 'group_created',
+    actor: req.user,
+    group,
+    metadata: { groupName: group.name },
   });
 
   res.status(201).json({
@@ -24,81 +31,78 @@ export const createGroup = async (req, res) => {
     defaultSplitType: group.defaultSplitType,
     members: group.members,
     createdBy: group.createdBy,
-    createdAt: group.createdAt
+    createdAt: group.createdAt,
   });
 };
 
-// Get all groups for the authenticated user
+// ── Get all groups ────────────────────────────────────────────────────────────
 export const getMyGroups = async (req, res) => {
-  const groups = await Group.find({
-    members: req.user._id
-  })
+  const groups = await Group.find({ members: req.user._id })
     .sort({ updatedAt: -1 })
-    .select("name members createdBy createdAt");
+    .select('name members createdBy createdAt');
 
-  const formattedGroups = groups.map(group => ({
+  const formattedGroups = groups.map((group) => ({
     id: group._id,
     name: group.name,
     memberCount: group.members.length,
     createdBy: group.createdBy,
-    createdAt: group.createdAt
+    createdAt: group.createdAt,
   }));
 
   res.status(200).json(formattedGroups);
 };
 
-// Add a member to a group
+// ── Add a member to a group ───────────────────────────────────────────────────
 export const addMemberToGroup = async (req, res) => {
   const { groupId } = req.params;
   const { email } = req.body;
 
   if (!email) {
-    return res.status(400).json({ message: "Email is required" });
+    return res.status(400).json({ message: 'Email is required' });
   }
 
   const group = await Group.findById(groupId);
-  if (!group) {
-    return res.status(404).json({ message: "Group not found" });
-  }
+  if (!group) return res.status(404).json({ message: 'Group not found' });
 
   if (!group.members.includes(req.user._id)) {
-    return res.status(403).json({ message: "Not authorized to add members" });
+    return res.status(403).json({ message: 'Not authorized to add members' });
   }
 
   const userToAdd = await User.findOne({ email });
   if (!userToAdd) {
-    return res.status(404).json({
-      message: "User not found. Invite flow coming next."
-    });
+    return res.status(404).json({ message: 'User not found. Invite flow coming next.' });
   }
 
   if (group.members.includes(userToAdd._id)) {
-    return res.status(400).json({
-      message: "User already a member of the group"
-    });
+    return res.status(400).json({ message: 'User already a member of the group' });
   }
 
   group.members.push(userToAdd._id);
   await group.save();
 
+  await logActivity({
+    type: 'member_added',
+    actor: req.user,
+    group,
+    metadata: { targetName: userToAdd.name, targetId: userToAdd._id },
+  });
+
   res.status(200).json({
-    message: "Member added successfully",
+    message: 'Member added successfully',
     groupId: group._id,
-    memberId: userToAdd._id
+    memberId: userToAdd._id,
   });
 };
 
-// Leave a group
+// ── Leave a group ─────────────────────────────────────────────────────────────
 export const leaveGroup = async (req, res) => {
   const { groupId } = req.params;
 
   const group = await Group.findById(groupId);
-  if (!group) {
-    return res.status(404).json({ message: "Group not found" });
-  }
+  if (!group) return res.status(404).json({ message: 'Group not found' });
 
   if (!group.members.includes(req.user._id)) {
-    return res.status(403).json({ message: "You are not a member of this group" });
+    return res.status(403).json({ message: 'You are not a member of this group' });
   }
 
   const expenses = await Expense.find({ group: groupId });
@@ -107,27 +111,31 @@ export const leaveGroup = async (req, res) => {
 
   if (userBalance !== 0) {
     return res.status(400).json({
-      message: "You must settle all balances before leaving the group",
-      balance: userBalance
+      message: 'You must settle all balances before leaving the group',
+      balance: userBalance,
     });
   }
 
-  group.members = group.members.filter(
-    memberId => memberId.toString() !== req.user._id.toString()
-  );
+  await logActivity({
+    type: 'group_left',
+    actor: req.user,
+    group,
+    metadata: {},
+  });
 
+  group.members = group.members.filter(
+    (memberId) => memberId.toString() !== req.user._id.toString()
+  );
   await group.save();
 
-  res.json({ message: "You have left the group successfully" });
+  res.json({ message: 'You have left the group successfully' });
 };
 
-// Get summary of all groups for the authenticated user
+// ── Get groups summary ────────────────────────────────────────────────────────
 export const getGroupsSummary = async (req, res) => {
   try {
     const userId = req.user._id.toString();
-
     const groups = await Group.find({ members: userId });
-
     const summaries = [];
 
     for (const group of groups) {
@@ -135,346 +143,264 @@ export const getGroupsSummary = async (req, res) => {
       const balances = calculateGroupBalances(group, expenses);
       const myNet = balances[userId] || 0;
 
-      const members = await User.find({
-        _id: { $in: group.members }
-      }).select("name");
-
+      const members = await User.find({ _id: { $in: group.members } }).select('name');
       const nameMap = {};
-      members.forEach(u => {
-        nameMap[u._id.toString()] = u.name;
-      });
+      members.forEach((u) => { nameMap[u._id.toString()] = u.name; });
 
       let preview = [];
-
       Object.entries(balances).forEach(([uid, net]) => {
         if (uid === userId) return;
         if (net === 0) return;
-
-        const name = nameMap[uid] || "Someone";
+        const name = nameMap[uid] || 'Someone';
         const relationAmount = Math.min(Math.abs(myNet), Math.abs(net));
-
         if (relationAmount === 0) return;
-
         if (myNet > 0 && net < 0) {
-          preview.push({
-            userId: uid,
-            name,
-            amount: relationAmount / 100,
-            direction: "you_receive"
-          });
+          preview.push({ userId: uid, name, amount: relationAmount / 100, direction: 'you_receive' });
         }
-
         if (myNet < 0 && net > 0) {
-          preview.push({
-            userId: uid,
-            name,
-            amount: relationAmount / 100,
-            direction: "you_pay"
-          });
+          preview.push({ userId: uid, name, amount: relationAmount / 100, direction: 'you_pay' });
         }
       });
 
       preview.sort((a, b) => b.amount - a.amount);
 
       const netDollars = myNet / 100;
-      let status = "settled";
-      if (netDollars > 0) status = "you_are_owed";
-      if (netDollars < 0) status = "you_owe";
+      let status = 'settled';
+      if (netDollars > 0) status = 'you_are_owed';
+      if (netDollars < 0) status = 'you_owe';
 
       summaries.push({
         _id: group._id,
         name: group.name,
-        emoji: group.emoji ?? "🏠",
-        defaultSplitType: group.defaultSplitType ?? "equal",
+        emoji: group.emoji ?? '🏠',
+        defaultSplitType: group.defaultSplitType ?? 'equal',
         createdBy: group.createdBy.toString(),
         balance: { net: netDollars, status },
         preview: preview.slice(0, 2),
-        othersCount: Math.max(0, preview.length - 2)
+        othersCount: Math.max(0, preview.length - 2),
       });
     }
 
     res.json(summaries);
-
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// Get members of a group
+// ── Get group members ─────────────────────────────────────────────────────────
 export const getGroupMembers = async (req, res) => {
   try {
     const { groupId } = req.params;
-
-    const group = await Group.findById(groupId)
-      .populate("members", "name email");
-
-    if (!group) {
-      return res.status(404).json({ message: "Group not found" });
-    }
+    const group = await Group.findById(groupId).populate('members', 'name email');
+    if (!group) return res.status(404).json({ message: 'Group not found' });
 
     const isMember = group.members.some(
-      m => m._id.toString() === req.user._id.toString()
+      (m) => m._id.toString() === req.user._id.toString()
     );
+    if (!isMember) return res.status(403).json({ message: 'Not authorized' });
 
-    if (!isMember) {
-      return res.status(403).json({ message: "Not authorized" });
-    }
-
-    const members = group.members.map(m => ({
-      id: m._id,
-      name: m.name,
-      email: m.email
-    }));
-
-    res.status(200).json({ members });
-
+    res.status(200).json({
+      members: group.members.map((m) => ({ id: m._id, name: m.name, email: m.email })),
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// ── NEW: Get group settings ────────────────────────────────────────────────────
+// ── Get group settings ────────────────────────────────────────────────────────
 export const getGroupSettings = async (req, res) => {
   try {
     const { groupId } = req.params;
-
     const group = await Group.findById(groupId)
-      .populate("members", "name email")
-      .populate("createdBy", "name");
+      .populate('members', 'name email')
+      .populate('createdBy', 'name');
 
-    if (!group) {
-      return res.status(404).json({ message: "Group not found" });
-    }
+    if (!group) return res.status(404).json({ message: 'Group not found' });
 
     const isMember = group.members.some(
-      m => m._id.toString() === req.user._id.toString()
+      (m) => m._id.toString() === req.user._id.toString()
     );
-
-    if (!isMember) {
-      return res.status(403).json({ message: "Not authorized" });
-    }
+    if (!isMember) return res.status(403).json({ message: 'Not authorized' });
 
     res.json({
       id: group._id,
       name: group.name,
-      emoji: group.emoji ?? "🏠",
-      defaultSplitType: group.defaultSplitType ?? "equal",
-      createdBy: {
-        id: group.createdBy._id,
-        name: group.createdBy.name
-      },
-      members: group.members.map(m => ({
-        id: m._id,
-        name: m.name,
-        email: m.email
-      })),
-      createdAt: group.createdAt
+      emoji: group.emoji ?? '🏠',
+      defaultSplitType: group.defaultSplitType ?? 'equal',
+      createdBy: { id: group.createdBy._id, name: group.createdBy.name },
+      members: group.members.map((m) => ({ id: m._id, name: m.name, email: m.email })),
+      createdAt: group.createdAt,
     });
-
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// ── NEW: Rename group ─────────────────────────────────────────────────────────
+// ── Rename group ──────────────────────────────────────────────────────────────
 export const renameGroup = async (req, res) => {
   try {
     const { groupId } = req.params;
     const { name } = req.body;
 
-    if (!name || name.trim() === "") {
-      return res.status(400).json({ message: "Group name is required" });
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ message: 'Group name is required' });
     }
 
     const group = await Group.findById(groupId);
-    if (!group) {
-      return res.status(404).json({ message: "Group not found" });
-    }
+    if (!group) return res.status(404).json({ message: 'Group not found' });
 
-    const isMember = group.members.some(
-      m => m.toString() === req.user._id.toString()
-    );
-    if (!isMember) {
-      return res.status(403).json({ message: "Not authorized" });
-    }
+    const isMember = group.members.some((m) => m.toString() === req.user._id.toString());
+    if (!isMember) return res.status(403).json({ message: 'Not authorized' });
 
+    const oldName = group.name;
     group.name = name.trim();
     await group.save();
 
-    res.json({ message: "Group renamed successfully", name: group.name });
+    await logActivity({
+      type: 'group_renamed',
+      actor: req.user,
+      group,
+      metadata: { oldName, newName: group.name },
+    });
 
+    res.json({ message: 'Group renamed successfully', name: group.name });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// ── NEW: Update group emoji ────────────────────────────────────────────────────
+// ── Update group emoji ────────────────────────────────────────────────────────
 export const updateGroupEmoji = async (req, res) => {
   try {
     const { groupId } = req.params;
     const { emoji } = req.body;
 
-    if (!emoji) {
-      return res.status(400).json({ message: "Emoji is required" });
-    }
+    if (!emoji) return res.status(400).json({ message: 'Emoji is required' });
 
     const group = await Group.findById(groupId);
-    if (!group) {
-      return res.status(404).json({ message: "Group not found" });
-    }
+    if (!group) return res.status(404).json({ message: 'Group not found' });
 
-    const isMember = group.members.some(
-      m => m.toString() === req.user._id.toString()
-    );
-    if (!isMember) {
-      return res.status(403).json({ message: "Not authorized" });
-    }
+    const isMember = group.members.some((m) => m.toString() === req.user._id.toString());
+    if (!isMember) return res.status(403).json({ message: 'Not authorized' });
 
     group.emoji = emoji;
     await group.save();
 
-    res.json({ message: "Emoji updated successfully", emoji: group.emoji });
-
+    res.json({ message: 'Emoji updated successfully', emoji: group.emoji });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// ── NEW: Update default split type ────────────────────────────────────────────
+// ── Update default split type ─────────────────────────────────────────────────
 export const updateDefaultSplitType = async (req, res) => {
   try {
     const { groupId } = req.params;
     const { defaultSplitType } = req.body;
 
-    const valid = ["equal", "exact", "percentage"];
+    const valid = ['equal', 'exact', 'percentage'];
     if (!valid.includes(defaultSplitType)) {
-      return res.status(400).json({
-        message: "Invalid split type. Must be equal, exact, or percentage"
-      });
+      return res.status(400).json({ message: 'Invalid split type. Must be equal, exact, or percentage' });
     }
 
     const group = await Group.findById(groupId);
-    if (!group) {
-      return res.status(404).json({ message: "Group not found" });
-    }
+    if (!group) return res.status(404).json({ message: 'Group not found' });
 
-    const isMember = group.members.some(
-      m => m.toString() === req.user._id.toString()
-    );
-    if (!isMember) {
-      return res.status(403).json({ message: "Not authorized" });
-    }
+    const isMember = group.members.some((m) => m.toString() === req.user._id.toString());
+    if (!isMember) return res.status(403).json({ message: 'Not authorized' });
 
     group.defaultSplitType = defaultSplitType;
     await group.save();
 
-    res.json({
-      message: "Default split type updated",
-      defaultSplitType: group.defaultSplitType
-    });
-
+    res.json({ message: 'Default split type updated', defaultSplitType: group.defaultSplitType });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// ── NEW: Remove a member from a group ─────────────────────────────────────────
+// ── Remove member from group ──────────────────────────────────────────────────
 export const removeMemberFromGroup = async (req, res) => {
   try {
     const { groupId, memberId } = req.params;
 
     const group = await Group.findById(groupId);
-    if (!group) {
-      return res.status(404).json({ message: "Group not found" });
-    }
+    if (!group) return res.status(404).json({ message: 'Group not found' });
 
-    // Only the creator can remove members
     if (group.createdBy.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        message: "Only the group creator can remove members"
-      });
+      return res.status(403).json({ message: 'Only the group creator can remove members' });
     }
 
-    // Cannot remove yourself — use leaveGroup instead
     if (memberId === req.user._id.toString()) {
-      return res.status(400).json({
-        message: "Use the leave group option to remove yourself"
-      });
+      return res.status(400).json({ message: 'Use the leave group option to remove yourself' });
     }
 
-    // Cannot remove the creator
     if (memberId === group.createdBy.toString()) {
-      return res.status(400).json({
-        message: "Cannot remove the group creator"
-      });
+      return res.status(400).json({ message: 'Cannot remove the group creator' });
     }
 
-    const isMember = group.members.some(
-      m => m.toString() === memberId
-    );
-    if (!isMember) {
-      return res.status(404).json({ message: "Member not found in group" });
-    }
+    const isMember = group.members.some((m) => m.toString() === memberId);
+    if (!isMember) return res.status(404).json({ message: 'Member not found in group' });
 
-    // Balance guard — member must be fully settled before removal
     const expenses = await Expense.find({ group: groupId });
     const balances = calculateGroupBalances(group, expenses);
     const memberBalance = balances[memberId] ?? 0;
 
     if (memberBalance !== 0) {
       return res.status(400).json({
-        message: "Member has unsettled balances and cannot be removed",
-        balance: memberBalance / 100
+        message: 'Member has unsettled balances and cannot be removed',
+        balance: memberBalance / 100,
       });
     }
 
-    group.members = group.members.filter(
-      m => m.toString() !== memberId
-    );
+    const removedUser = await User.findById(memberId).select('name');
 
+    group.members = group.members.filter((m) => m.toString() !== memberId);
     await group.save();
 
-    res.json({ message: "Member removed successfully" });
+    await logActivity({
+      type: 'member_removed',
+      actor: req.user,
+      group,
+      metadata: { targetName: removedUser?.name ?? 'Unknown', targetId: memberId },
+    });
 
+    res.json({ message: 'Member removed successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// ── NEW: Delete a group ────────────────────────────────────────────────────────
+// ── Delete group ──────────────────────────────────────────────────────────────
 export const deleteGroup = async (req, res) => {
   try {
     const { groupId } = req.params;
 
     const group = await Group.findById(groupId);
-    if (!group) {
-      return res.status(404).json({ message: "Group not found" });
-    }
+    if (!group) return res.status(404).json({ message: 'Group not found' });
 
-    // Only the creator can delete the group
     if (group.createdBy.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        message: "Only the group creator can delete the group"
-      });
+      return res.status(403).json({ message: 'Only the group creator can delete the group' });
     }
 
-    // All members must be fully settled
     const expenses = await Expense.find({ group: groupId });
     const balances = calculateGroupBalances(group, expenses);
+    const hasUnsettled = Object.values(balances).some((b) => b !== 0);
 
-    const hasUnsettled = Object.values(balances).some(b => b !== 0);
     if (hasUnsettled) {
-      return res.status(400).json({
-        message: "All balances must be settled before deleting the group"
-      });
+      return res.status(400).json({ message: 'All balances must be settled before deleting the group' });
     }
 
-    // Delete all expenses in the group, then the group itself
+    await logActivity({
+      type: 'group_deleted',
+      actor: req.user,
+      group,
+      metadata: { groupName: group.name },
+    });
+
     await Expense.deleteMany({ group: groupId });
     await Group.findByIdAndDelete(groupId);
 
-    res.json({ message: "Group deleted successfully" });
-
+    res.json({ message: 'Group deleted successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
