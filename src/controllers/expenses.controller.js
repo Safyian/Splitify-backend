@@ -82,10 +82,10 @@ export const createExpense = async (req, res) => {
     await logActivity({
     type: 'expense_added',
     actor: req.user,
-    group,                         // the Group document you already fetched
+    group,
       metadata: {
       description: expense.description,
-      amount: expense.amount / 100,
+      amount: expense.amount,
       },
     });
     res.status(201).json(expense);
@@ -396,8 +396,8 @@ check.splits.forEach(s => {
     group,
     metadata: {
     description: expense.description,
-    amount: expense.amount / 100,
-    },  
+    amount: expense.amount,
+    },
     });
     res.status(200).json(updatedExpense);
 
