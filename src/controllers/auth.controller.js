@@ -166,32 +166,188 @@ export const deleteMe = async (req, res) => {
 ================================ */
 
 export const verifyEmail = async (req, res) => {
-  const { token } = req.query;
+  const { token } = req.params;
 
-  if (!token) {
-    res.status(400);
-    throw new Error('Verification token is required');
-  }
+  const user = await User.findOne({
+    verificationToken: token,
+    verificationTokenExpiry: { $gt: new Date() },
+  }).select('+verificationToken +verificationTokenExpiry');
 
-  const user = await User.findOne({ verificationToken: token })
-    .select('+verificationToken +verificationTokenExpiry');
-
+  // ── Failed — invalid or expired token ───────────────────────────────────
   if (!user) {
-    res.status(400);
-    throw new Error('Invalid or expired verification token');
+    return res.status(400).send(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        <title>Verification Failed — Splitify</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+            background: #F2F1F8;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+          }
+          .card {
+            background: white;
+            border-radius: 24px;
+            padding: 48px 36px;
+            max-width: 420px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+          }
+          .icon {
+            width: 72px;
+            height: 72px;
+            background: rgba(229, 109, 57, 0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            font-size: 32px;
+          }
+          h1 {
+            font-size: 22px;
+            font-weight: 700;
+            color: #1C1C1E;
+            margin-bottom: 10px;
+          }
+          p {
+            font-size: 15px;
+            color: #6B6B6B;
+            line-height: 1.6;
+            margin-bottom: 28px;
+          }
+          .btn {
+            display: inline-block;
+            background: #E56D39;
+            color: white;
+            font-size: 15px;
+            font-weight: 600;
+            padding: 14px 28px;
+            border-radius: 12px;
+            text-decoration: none;
+            width: 100%;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <div class="icon">⚠️</div>
+          <h1>Link expired or invalid</h1>
+          <p>
+            This verification link has expired or has already been used.
+            Open the Splitify app and request a new verification email.
+          </p>
+          <a href="splitify://resend-verification" class="btn">
+            Open Splitify
+          </a>
+        </div>
+      </body>
+      </html>
+    `);
   }
 
-  if (user.verificationTokenExpiry < new Date()) {
-    res.status(400);
-    throw new Error('Verification token has expired. Please request a new one.');
-  }
-
+  // ── Success — activate account ───────────────────────────────────────────
   user.isVerified = true;
   user.verificationToken = undefined;
   user.verificationTokenExpiry = undefined;
   await user.save();
 
-  res.status(200).json({ message: 'Email verified successfully. You can now log in.' });
+  return res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+      <title>Email Verified — Splitify</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+          background: #F2F1F8;
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+        }
+        .card {
+          background: white;
+          border-radius: 24px;
+          padding: 48px 36px;
+          max-width: 420px;
+          width: 100%;
+          text-align: center;
+          box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+        }
+        .icon {
+          width: 72px;
+          height: 72px;
+          background: rgba(13, 173, 133, 0.1);
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin: 0 auto 24px;
+          font-size: 32px;
+        }
+        h1 {
+          font-size: 22px;
+          font-weight: 700;
+          color: #1C1C1E;
+          margin-bottom: 10px;
+        }
+        p {
+          font-size: 15px;
+          color: #6B6B6B;
+          line-height: 1.6;
+          margin-bottom: 28px;
+        }
+        .btn {
+          display: inline-block;
+          background: #0DAD85;
+          color: white;
+          font-size: 15px;
+          font-weight: 600;
+          padding: 14px 28px;
+          border-radius: 12px;
+          text-decoration: none;
+          width: 100%;
+        }
+        .hint {
+          font-size: 13px;
+          color: #9B9B9B;
+          margin-top: 20px;
+          line-height: 1.5;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <div class="icon">✅</div>
+        <h1>Email verified!</h1>
+        <p>
+          Your Splitify account is now active.
+          Open the app and sign in to start splitting expenses.
+        </p>
+        <a href="splitify://login" class="btn">
+          Open Splitify
+        </a>
+        <p class="hint">
+          If the button doesn't work, open the Splitify app manually and sign in.
+        </p>
+      </div>
+    </body>
+    </html>
+  `);
 };
 
 /* ================================
