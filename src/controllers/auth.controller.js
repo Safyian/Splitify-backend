@@ -1,7 +1,10 @@
 import User from '../models/user.js';
 import bcrypt from 'bcryptjs';
-
+import Group from '../models/group.js';
+import Expense from '../models/expense.js';
+import { calculateGroupBalances } from '../utils/balance.js';
 import { generateToken } from '../utils/token.js';
+import { sendVerificationEmail } from '../utils/email.helper.js';
 
 /* ================================
    REGISTER
@@ -9,8 +12,9 @@ import { generateToken } from '../utils/token.js';
 
 export const register = async (req, res) => {
   const { name, email, password } = req.body;
+  const normalisedEmail = email.toLowerCase().trim();
 
-  const userExists = await User.findOne({ email });
+  const userExists = await User.findOne({ email: normalisedEmail });
   if (userExists) {
     res.status(400);
     throw new Error('User already exists');
@@ -18,19 +22,20 @@ export const register = async (req, res) => {
 
   const user = await User.create({
     name,
-    email,
+    email: normalisedEmail,
     password
   });
 
-  res.status(201).json({
-  token: generateToken(user._id),
-  user: {
-    id: user._id,
-    name: user.name,
-    email: user.email
-  }
-});
+  const token = user.generateVerificationToken();
+  await user.save();
 
+  const verificationUrl = `${process.env.APP_URL}/auth/verify-email?token=${token}`;
+  await sendVerificationEmail({ to: user.email, name: user.name, verificationUrl });
+
+  res.status(201).json({
+    message: 'Account created. Please check your email to verify your account.',
+    email: user.email,
+  });
 };
 
 /* ================================
@@ -52,7 +57,12 @@ export const login = async (req, res) => {
     throw new Error('Invalid credentials');
   }
 
-   res.status(201).json({
+  if (!user.isVerified) {
+    res.status(403);
+    throw new Error('Please verify your email before logging in.');
+  }
+
+  res.status(200).json({
   token: generateToken(user._id),
   user: {
     id: user._id,
@@ -149,4 +159,71 @@ export const deleteMe = async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
+};
+
+/* ================================
+   VERIFY EMAIL
+================================ */
+
+export const verifyEmail = async (req, res) => {
+  const { token } = req.query;
+
+  if (!token) {
+    res.status(400);
+    throw new Error('Verification token is required');
+  }
+
+  const user = await User.findOne({ verificationToken: token })
+    .select('+verificationToken +verificationTokenExpiry');
+
+  if (!user) {
+    res.status(400);
+    throw new Error('Invalid or expired verification token');
+  }
+
+  if (user.verificationTokenExpiry < new Date()) {
+    res.status(400);
+    throw new Error('Verification token has expired. Please request a new one.');
+  }
+
+  user.isVerified = true;
+  user.verificationToken = undefined;
+  user.verificationTokenExpiry = undefined;
+  await user.save();
+
+  res.status(200).json({ message: 'Email verified successfully. You can now log in.' });
+};
+
+/* ================================
+   RESEND VERIFICATION EMAIL
+================================ */
+
+export const resendVerification = async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    res.status(400);
+    throw new Error('Email is required');
+  }
+
+  const user = await User.findOne({ email: email.toLowerCase().trim() })
+    .select('+verificationToken +verificationTokenExpiry');
+
+  if (!user) {
+    // Return success to prevent email enumeration
+    return res.status(200).json({ message: 'If that email exists, a verification link has been sent.' });
+  }
+
+  if (user.isVerified) {
+    res.status(400);
+    throw new Error('This account is already verified.');
+  }
+
+  const token = user.generateVerificationToken();
+  await user.save();
+
+  const verificationUrl = `${process.env.APP_URL}/auth/verify-email?token=${token}`;
+  await sendVerificationEmail({ to: user.email, name: user.name, verificationUrl });
+
+  res.status(200).json({ message: 'Verification email resent. Please check your inbox.' });
 };
