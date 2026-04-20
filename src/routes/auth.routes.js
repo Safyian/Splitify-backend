@@ -1,9 +1,9 @@
 import express from 'express';
-import { register, login, logout, getMe, updateMe, deleteMe, verifyEmail, resendVerification } from '../controllers/auth.controller.js';
+import { register, login, logout, getMe, updateMe, deleteMe, verifyEmail, resendVerification, forgotPassword, showResetForm, resetPassword } from '../controllers/auth.controller.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import protect from "../middleware/auth.middleware.js";
 import { validate } from '../middleware/validate.middleware.js';
-import { registerSchema, loginSchema } from '../validators/user.validator.js';
+import { registerSchema, loginSchema, forgotPasswordSchema } from '../validators/user.validator.js';
 
 const router = express.Router();
 
@@ -18,5 +18,9 @@ router.delete('/auth/me', protect, deleteMe);
 
 router.get('/auth/verify-email', asyncHandler(verifyEmail));
 router.post('/auth/resend-verification', asyncHandler(resendVerification));
+
+router.post('/auth/forgot-password', validate(forgotPasswordSchema), asyncHandler(forgotPassword));
+router.get('/auth/reset-password', asyncHandler(showResetForm));
+router.post('/auth/reset-password', asyncHandler(resetPassword));
 
 export default router;
