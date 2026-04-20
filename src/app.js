@@ -16,11 +16,13 @@ const authLimiter = rateLimit({
   message: { message: 'Too many attempts. Please try again later.' },
 });
 
+app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
 
 app.use('/auth/login', authLimiter);
 app.use('/auth/register', authLimiter);
+app.use('/auth/forgot-password', authLimiter);
 app.use(authRoutes);
 app.use(userRoutes);
 app.use(groupRoutes);

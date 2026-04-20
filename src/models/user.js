@@ -25,6 +25,8 @@ const userSchema = new mongoose.Schema({
   isVerified: { type: Boolean, default: false },
   verificationToken: { type: String, select: false },
   verificationTokenExpiry: { type: Date, select: false },
+  passwordResetToken: { type: String, select: false },
+  passwordResetTokenExpiry: { type: Date, select: false },
 }, { timestamps: true });
 
 /* Hash password before saving */
@@ -37,6 +39,13 @@ userSchema.methods.generateVerificationToken = function () {
   const token = crypto.randomBytes(32).toString('hex');
   this.verificationToken = token;
   this.verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  return token;
+};
+
+userSchema.methods.generatePasswordResetToken = function () {
+  const token = crypto.randomBytes(32).toString('hex');
+  this.passwordResetToken = token;
+  this.passwordResetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
   return token;
 };
 
