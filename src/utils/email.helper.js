@@ -6,13 +6,13 @@ export const sendVerificationEmail = async ({ to, name, verificationUrl }) => {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'Splitify <onboarding@resend.dev>',
+      from: 'Splittify <noreply@mail.splittify.app>',
       to,
-      subject: 'Verify your Splitify account',
+      subject: 'Verify your Splittify account',
       html: `
         <div style="font-family: Inter, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
           <h2 style="font-size: 22px; font-weight: 700; color: #1C1C1E; margin-bottom: 8px;">
-            Welcome to Splitify, ${name}! 👋
+            Welcome to Splittify, ${name}! 👋
           </h2>
           <p style="font-size: 15px; color: #6B6B6B; line-height: 1.6; margin-bottom: 28px;">
             Thanks for signing up. Please verify your email address to activate your account.
@@ -24,7 +24,7 @@ export const sendVerificationEmail = async ({ to, name, verificationUrl }) => {
             Verify Email Address
           </a>
           <p style="font-size: 13px; color: #9B9B9B; margin-top: 28px; line-height: 1.5;">
-            This link expires in 24 hours. If you did not create a Splitify account,
+            This link expires in 24 hours. If you did not create a Splittify account,
             you can safely ignore this email.
           </p>
         </div>
@@ -45,16 +45,16 @@ export const sendPasswordResetEmail = async ({ to, name, resetUrl }) => {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'Splitify <onboarding@resend.dev>',
+      from: 'Splittify <noreply@mail.splittify.app>',
       to,
-      subject: 'Reset your Splitify password',
+      subject: 'Reset your Splittify password',
       html: `
         <div style="font-family: Inter, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
           <h2 style="font-size: 22px; font-weight: 700; color: #1C1C1E; margin-bottom: 8px;">
             Reset your password
           </h2>
           <p style="font-size: 15px; color: #6B6B6B; line-height: 1.6; margin-bottom: 8px;">
-            Hi ${name}, we received a request to reset your Splitify password.
+            Hi ${name}, we received a request to reset your Splittify password.
           </p>
           <p style="font-size: 15px; color: #6B6B6B; line-height: 1.6; margin-bottom: 28px;">
             Click the button below to choose a new password. This link expires in <strong>1 hour</strong>.
