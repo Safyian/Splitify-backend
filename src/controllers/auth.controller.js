@@ -29,7 +29,7 @@ export const register = async (req, res) => {
   const token = user.generateVerificationToken();
   await user.save();
 
-  const verificationUrl = `${process.env.APP_URL}/auth/verify-email?token=${token}`;
+  const verificationUrl = `${process.env.APP_URL}/auth/verify/${token}`;
   await sendVerificationEmail({ to: user.email, name: user.name, verificationUrl });
 
   res.status(201).json({
@@ -378,7 +378,7 @@ export const resendVerification = async (req, res) => {
   const token = user.generateVerificationToken();
   await user.save();
 
-  const verificationUrl = `${process.env.APP_URL}/auth/verify-email?token=${token}`;
+  const verificationUrl = `${process.env.APP_URL}/auth/verify/${token}`;
   await sendVerificationEmail({ to: user.email, name: user.name, verificationUrl });
 
   res.status(200).json({ message: 'Verification email resent. Please check your inbox.' });

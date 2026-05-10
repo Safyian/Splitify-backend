@@ -16,7 +16,7 @@ router.get("/auth/me",protect, (getMe));
 router.patch('/auth/me', protect, updateMe);
 router.delete('/auth/me', protect, deleteMe);
 
-router.get('/auth/verify-email', asyncHandler(verifyEmail));
+router.get('/auth/verify/:token', asyncHandler(verifyEmail));
 router.post('/auth/resend-verification', asyncHandler(resendVerification));
 
 router.post('/auth/forgot-password', validate(forgotPasswordSchema), asyncHandler(forgotPassword));
