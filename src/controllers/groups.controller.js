@@ -1,7 +1,7 @@
 import Group from "../models/group.js";
 import User from "../models/user.js";
 import Expense from "../models/expense.js";
-import { calculateGroupBalances } from "../utils/balance.js";
+import { calculateGroupBalances, calculatePairwiseDebts } from "../utils/balance.js";
 import { logActivity } from '../utils/activity.helper.js';
 
 export const createGroup = async (req, res) => {
@@ -147,22 +147,18 @@ export const getGroupsSummary = async (req, res) => {
       const nameMap = {};
       members.forEach((u) => { nameMap[u._id.toString()] = u.name; });
 
-      let preview = [];
-      Object.entries(balances).forEach(([uid, net]) => {
-        if (uid === userId) return;
-        if (net === 0) return;
-        const name = nameMap[uid] || 'Someone';
-        const relationAmount = Math.min(Math.abs(myNet), Math.abs(net));
-        if (relationAmount === 0) return;
-        if (myNet > 0 && net < 0) {
-          preview.push({ userId: uid, name, amount: relationAmount / 100, direction: 'you_receive' });
-        }
-        if (myNet < 0 && net > 0) {
-          preview.push({ userId: uid, name, amount: relationAmount / 100, direction: 'you_pay' });
-        }
-      });
+      const memberIds = group.members.map(m => m.toString());
+      const pairwiseDebts = calculatePairwiseDebts(memberIds, expenses);
 
-      preview.sort((a, b) => b.amount - a.amount);
+      const preview = pairwiseDebts
+        .filter(d => d.from === userId || d.to === userId)
+        .map(d => ({
+          userId: d.from === userId ? d.to : d.from,
+          name: nameMap[d.from === userId ? d.to : d.from] || 'Someone',
+          amount: d.amount,
+          direction: d.to === userId ? 'you_receive' : 'you_pay',
+        }))
+        .sort((a, b) => b.amount - a.amount);
 
       const netDollars = myNet / 100;
       let status = 'settled';

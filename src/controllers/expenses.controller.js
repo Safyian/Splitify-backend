@@ -1,7 +1,7 @@
 import User from "../models/user.js";
 import Group from "../models/group.js";
 import Expense from "../models/expense.js";
-import { calculateGroupBalances, simplifyDebts } from "../utils/balance.js";
+import { calculateGroupBalances, simplifyDebts, calculatePairwiseDebts } from "../utils/balance.js";
 import {
   calculateEqualSplits,
   calculatePercentageSplits,
@@ -165,51 +165,14 @@ export const getGroupBalances = async (req, res) => {
 
     // ── 5. Pairwise direct debts ──────────────────────────────
     const memberIds = group.members.map(m => m.toString());
-    const pairwise = [];
-
-    for (let i = 0; i < memberIds.length; i++) {
-      for (let j = i + 1; j < memberIds.length; j++) {
-        const a = memberIds[i];
-        const b = memberIds[j];
-
-        let aOwesB = 0; // b paid, a was in splits
-        let bOwesA = 0; // a paid, b was in splits
-
-        expenses.forEach(expense => {
-          const paidBy = expense.paidBy._id
-            ? expense.paidBy._id.toString()
-            : expense.paidBy.toString();
-
-          if (paidBy === b) {
-            const aSplit = expense.splits.find(s => {
-              const su = s.user._id ? s.user._id.toString() : s.user.toString();
-              return su === a;
-            });
-            if (aSplit) aOwesB += Math.round(aSplit.amount * 100);
-          }
-
-          if (paidBy === a) {
-            const bSplit = expense.splits.find(s => {
-              const su = s.user._id ? s.user._id.toString() : s.user.toString();
-              return su === b;
-            });
-            if (bSplit) bOwesA += Math.round(bSplit.amount * 100);
-          }
-        });
-
-        const netCents = bOwesA - aOwesB; // positive = b owes a
-
-        if (Math.abs(netCents) < 1) continue; // skip if settled
-
-        pairwise.push(
-          netCents > 0
-            ? { from: b, fromName: nameMap[b], to: a, toName: nameMap[a], amount: netCents / 100 }
-            : { from: a, fromName: nameMap[a], to: b, toName: nameMap[b], amount: Math.abs(netCents) / 100 }
-        );
-      }
-    }
-
-    // Sort largest debt first
+    const pairwiseRaw = calculatePairwiseDebts(memberIds, expenses);
+    const pairwise = pairwiseRaw.map(({ from, to, amount }) => ({
+      from,
+      fromName: nameMap[from] || 'Unknown',
+      to,
+      toName: nameMap[to] || 'Unknown',
+      amount,
+    }));
     pairwise.sort((a, b) => b.amount - a.amount);
 
     res.json({ balances, settlements, pairwise });

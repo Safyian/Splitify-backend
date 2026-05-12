@@ -62,3 +62,50 @@ export const simplifyDebts = (balancesCents) => {
 
   return settlements;
 };
+
+export const calculatePairwiseDebts = (memberIds, expenses) => {
+  const pairwise = [];
+
+  for (let i = 0; i < memberIds.length; i++) {
+    for (let j = i + 1; j < memberIds.length; j++) {
+      const a = memberIds[i];
+      const b = memberIds[j];
+
+      let aOwesB = 0;
+      let bOwesA = 0;
+
+      expenses.forEach(expense => {
+        const paidBy = expense.paidBy?._id
+          ? expense.paidBy._id.toString()
+          : expense.paidBy.toString();
+
+        if (paidBy === b) {
+          const aSplit = expense.splits.find(s => {
+            const su = s.user?._id ? s.user._id.toString() : s.user.toString();
+            return su === a;
+          });
+          if (aSplit) aOwesB += Math.round(aSplit.amount * 100);
+        }
+
+        if (paidBy === a) {
+          const bSplit = expense.splits.find(s => {
+            const su = s.user?._id ? s.user._id.toString() : s.user.toString();
+            return su === b;
+          });
+          if (bSplit) bOwesA += Math.round(bSplit.amount * 100);
+        }
+      });
+
+      const netCents = bOwesA - aOwesB;
+      if (Math.abs(netCents) < 1) continue;
+
+      pairwise.push(
+        netCents > 0
+          ? { from: b, to: a, amount: netCents / 100 }
+          : { from: a, to: b, amount: Math.abs(netCents) / 100 }
+      );
+    }
+  }
+
+  return pairwise;
+};
