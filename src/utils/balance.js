@@ -109,3 +109,30 @@ export const calculatePairwiseDebts = (memberIds, expenses) => {
 
   return pairwise;
 };
+
+export const buildPreview = (strategy, { userId, balancesCents, memberIds, expenses, nameMap }) => {
+  if (strategy === 'pairwise') {
+    const pairwise = calculatePairwiseDebts(memberIds, expenses);
+    return pairwise
+      .filter(d => d.from === userId || d.to === userId)
+      .map(d => ({
+        userId: d.from === userId ? d.to : d.from,
+        name: nameMap[d.from === userId ? d.to : d.from] || 'Someone',
+        amount: d.amount,
+        direction: d.to === userId ? 'you_receive' : 'you_pay',
+      }))
+      .sort((a, b) => b.amount - a.amount);
+  }
+
+  // Default: simplified
+  const simplified = simplifyDebts({ ...balancesCents });
+  return simplified
+    .filter(s => s.from === userId || s.to === userId)
+    .map(s => ({
+      userId: s.from === userId ? s.to : s.from,
+      name: nameMap[s.from === userId ? s.to : s.from] || 'Someone',
+      amount: s.amount,
+      direction: s.to === userId ? 'you_receive' : 'you_pay',
+    }))
+    .sort((a, b) => b.amount - a.amount);
+};
