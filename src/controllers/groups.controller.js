@@ -169,8 +169,8 @@ export const getGroupsSummary = async (req, res) => {
         defaultSplitType: group.defaultSplitType ?? 'equal',
         createdBy: group.createdBy.toString(),
         balance: { net: netDollars, status },
-        preview: preview.slice(0, 2),
-        othersCount: Math.max(0, preview.length - 2),
+        preview: preview,
+        othersCount: 0,
       });
     }
 
