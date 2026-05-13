@@ -1,7 +1,7 @@
 import User from "../models/user.js";
 import Group from "../models/group.js";
 import Expense from "../models/expense.js";
-import { calculateGroupBalances } from "../utils/balance.js";
+import { calculateGroupBalances, calculatePairwiseDebts } from '../utils/balance.js';
 
 // ── GET /api/friends ──────────────────────────────────────────────────────────
 // Returns explicit friends + group contacts, each with cross-group balance
@@ -47,22 +47,18 @@ export const getFriends = async (req, res) => {
 
     for (const group of groups) {
       const expenses = await Expense.find({ group: group._id });
-      const balances = calculateGroupBalances(group, expenses);
+      const memberIds = group.members.map(m => m.toString());
+      const pairwiseDebts = calculatePairwiseDebts(memberIds, expenses);
 
-      const myNet = balances[myId] ?? 0;
-
-      Object.entries(balances).forEach(([uid, net]) => {
-        if (uid === myId) return;
-
-        // Derive pairwise amount between me and this person
-        const pairwise = Math.min(Math.abs(myNet), Math.abs(net));
-        if (pairwise === 0) return;
-
-        let contribution = 0;
-        if (myNet > 0 && net < 0) contribution = pairwise / 100;   // they owe me
-        if (myNet < 0 && net > 0) contribution = -(pairwise / 100); // I owe them
-
-        netBalances[uid] = (netBalances[uid] ?? 0) + contribution;
+      pairwiseDebts.forEach(({ from, to, amount }) => {
+        // Only process debts that involve me
+        if (from === myId) {
+          // I owe someone
+          netBalances[to] = (netBalances[to] ?? 0) - amount;
+        } else if (to === myId) {
+          // Someone owes me
+          netBalances[from] = (netBalances[from] ?? 0) + amount;
+        }
       });
     }
 
