@@ -1,7 +1,7 @@
 import User from "../models/user.js";
 import Group from "../models/group.js";
 import Expense from "../models/expense.js";
-import { calculateGroupBalances, calculatePairwiseDebts } from '../utils/balance.js';
+import { calculateGroupBalances, simplifyDebts } from '../utils/balance.js';
 
 // ── GET /api/friends ──────────────────────────────────────────────────────────
 // Returns explicit friends + group contacts, each with cross-group balance
@@ -47,11 +47,10 @@ export const getFriends = async (req, res) => {
 
     for (const group of groups) {
       const expenses = await Expense.find({ group: group._id });
-      const memberIds = group.members.map(m => m.toString());
-      const pairwiseDebts = calculatePairwiseDebts(memberIds, expenses);
+      const balancesCents = calculateGroupBalances(group, expenses);
+      const simplified = simplifyDebts({ ...balancesCents });
 
-      pairwiseDebts.forEach(({ from, to, amount }) => {
-        // Only process debts that involve me
+      simplified.forEach(({ from, to, amount }) => {
         if (from === myId) {
           // I owe someone
           netBalances[to] = (netBalances[to] ?? 0) - amount;
