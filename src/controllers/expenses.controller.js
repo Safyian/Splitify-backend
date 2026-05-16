@@ -142,16 +142,30 @@ export const getGroupBalances = async (req, res) => {
     const balancesCents = calculateGroupBalances(group, expenses);
 
     // ── 2. Member name map ────────────────────────────────────
-    const members = await User.find({ _id: { $in: group.members } }).select("name");
+    const allUserIds = new Set([
+      ...group.members.map(m => m.toString()),
+      ...expenses.flatMap(e => [
+        e.paidBy?._id?.toString() ?? e.paidBy?.toString(),
+        ...e.splits.map(s => s.user?._id?.toString() ?? s.user?.toString()),
+      ]).filter(Boolean),
+    ]);
+
+    const members = await User.find({
+      _id: { $in: [...allUserIds] }
+    }).select("name");
     const nameMap = {};
     members.forEach(u => { nameMap[u._id.toString()] = u.name; });
 
-    // ── 3. Net balances with names ────────────────────────────
-    const balances = Object.entries(balancesCents).map(([userId, cents]) => ({
-      userId,
-      name: nameMap[userId] || "Unknown",
-      net: cents / 100,
-    }));
+    // ── 3. Net balances with names (current members only) ────────────────────────────
+    const memberIdSet = new Set(group.members.map(m => m.toString()));
+
+    const balances = Object.entries(balancesCents)
+      .filter(([userId]) => memberIdSet.has(userId))
+      .map(([userId, cents]) => ({
+        userId,
+        name: nameMap[userId] || "Unknown",
+        net: cents / 100,
+      }));
 
     // ── 4. Simplified debts with names ────────────────────────
     const simplifiedRaw = simplifyDebts(balancesCents);
