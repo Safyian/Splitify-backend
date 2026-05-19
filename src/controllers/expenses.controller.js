@@ -467,6 +467,16 @@ export const deleteExpense = async (req, res) => {
 
     await expense.deleteOne();
 
+    await logActivity({
+      type: 'expense_deleted',
+      actor: req.user,
+      group,
+      metadata: {
+        description: expense.description,
+        amount: expense.amount,
+      },
+    });
+
     if (group.settledAt) {
       const expenses = await Expense.find({ group: groupId })
         .populate("paidBy")

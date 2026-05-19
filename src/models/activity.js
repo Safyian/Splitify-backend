@@ -7,6 +7,7 @@ const activitySchema = new mongoose.Schema(
       enum: [
         'expense_added',
         'expense_updated',
+        'expense_deleted',
         'settlement_made',
         'member_added',
         'member_removed',
