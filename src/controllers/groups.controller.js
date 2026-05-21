@@ -1,6 +1,7 @@
 import Group from "../models/group.js";
 import User from "../models/user.js";
 import Expense from "../models/expense.js";
+import Activity from "../models/activity.js";
 import { calculateGroupBalances, calculatePairwiseDebts, simplifyDebts, buildPreview } from '../utils/balance.js';
 import { logActivity } from '../utils/activity.helper.js';
 
@@ -16,6 +17,9 @@ export const createGroup = async (req, res) => {
     members: [req.user._id],
     createdBy: req.user._id,
   });
+
+  group.adminId = group.createdBy;
+  await group.save();
 
   await logActivity({
     type: 'group_created',
@@ -126,6 +130,20 @@ export const leaveGroup = async (req, res) => {
   group.members = group.members.filter(
     (memberId) => memberId.toString() !== req.user._id.toString()
   );
+
+  // If leaving member was admin, clear adminId
+  if (group.adminId?.toString() === req.user._id.toString()) {
+    group.adminId = null;
+  }
+
+  // If last member left, delete the group entirely
+  if (group.members.length === 0) {
+    await Expense.deleteMany({ group: group._id });
+    await Activity.deleteMany({ group: group._id });
+    await group.deleteOne();
+    return res.json({ message: 'Group deleted as last member left' });
+  }
+
   await group.save();
 
   res.json({ message: 'You have left the group successfully' });
@@ -168,6 +186,7 @@ export const getGroupsSummary = async (req, res) => {
         emoji: group.emoji ?? '🏠',
         defaultSplitType: group.defaultSplitType ?? 'equal',
         createdBy: group.createdBy.toString(),
+        adminId: group.adminId?.toString() ?? null,
         balance: { net: netDollars, status },
         preview: preview,
         othersCount: 0,
@@ -221,6 +240,7 @@ export const getGroupSettings = async (req, res) => {
       emoji: group.emoji ?? '🏠',
       defaultSplitType: group.defaultSplitType ?? 'equal',
       createdBy: { id: group.createdBy._id, name: group.createdBy.name },
+      adminId: group.adminId?.toString() ?? null,
       members: group.members.map((m) => ({ id: m._id, name: m.name, email: m.email })),
       createdAt: group.createdAt,
     });
@@ -319,16 +339,11 @@ export const removeMemberFromGroup = async (req, res) => {
     const group = await Group.findById(groupId);
     if (!group) return res.status(404).json({ message: 'Group not found' });
 
-    if (group.createdBy.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Only the group creator can remove members' });
-    }
+    const isAdmin = group.adminId?.toString() === req.user._id.toString();
+    const isSelf = memberId === req.user._id.toString();
 
-    if (memberId === req.user._id.toString()) {
-      return res.status(400).json({ message: 'Use the leave group option to remove yourself' });
-    }
-
-    if (memberId === group.createdBy.toString()) {
-      return res.status(400).json({ message: 'Cannot remove the group creator' });
+    if (!isAdmin && !isSelf) {
+      return res.status(403).json({ message: 'You can only remove yourself from the group' });
     }
 
     const isMember = group.members.some((m) => m.toString() === memberId);
@@ -336,13 +351,27 @@ export const removeMemberFromGroup = async (req, res) => {
 
     const expenses = await Expense.find({ group: groupId });
     const balances = calculateGroupBalances(group, expenses);
-    const memberBalance = balances[memberId] ?? 0;
 
-    if (memberBalance !== 0) {
-      return res.status(400).json({
-        message: 'Member has unsettled balances and cannot be removed',
-        balance: memberBalance / 100,
-      });
+    if (isAdmin && !isSelf) {
+      // Admin removing another member — check their balance
+      const memberBalance = balances[memberId] ?? 0;
+      if (memberBalance !== 0) {
+        return res.status(400).json({
+          message: 'Member has unsettled balances and cannot be removed',
+          balance: memberBalance / 100,
+        });
+      }
+    }
+
+    if (isSelf) {
+      // Member removing themselves — check own balance
+      const memberBalance = balances[memberId] ?? 0;
+      if (memberBalance !== 0) {
+        return res.status(400).json({
+          message: 'Member has unsettled balances and cannot be removed',
+          balance: memberBalance / 100,
+        });
+      }
     }
 
     const removedUser = await User.findById(memberId).select('name');
@@ -371,8 +400,8 @@ export const deleteGroup = async (req, res) => {
     const group = await Group.findById(groupId);
     if (!group) return res.status(404).json({ message: 'Group not found' });
 
-    if (group.createdBy.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Only the group creator can delete the group' });
+    if (group.adminId?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only the group admin can delete the group' });
     }
 
     const expenses = await Expense.find({ group: groupId });

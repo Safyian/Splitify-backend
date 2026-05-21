@@ -108,14 +108,24 @@ export const getGroupExpenses = async (req, res) => {
       return res.status(403).json({ message: "Not authorized" });
     }
 
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 25;
+    const skip = (page - 1) * limit;
+    const total = await Expense.countDocuments({ group: groupId });
+
     const expenses = await Expense.find({ group: groupId })
       .populate("paidBy", "name email")
       .populate("splits.user", "name email")
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
 
     res.status(200).json({
       count: expenses.length,
-      expenses
+      total,
+      page,
+      hasMore: skip + expenses.length < total,
+      expenses,
     });
 
   } catch (err) {
