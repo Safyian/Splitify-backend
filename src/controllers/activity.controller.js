@@ -18,8 +18,8 @@ export const getActivity = async (req, res) => {
       userGroups.map(async (group) => {
         const joinEvent = await Activity.findOne({
           group: group._id,
-          type: 'member_joined',
-          'metadata.userId': userId,
+          type: 'member_added',
+          'metadata.targetId': userId,
         }).sort({ createdAt: -1 });
 
         // If no join event found they are the creator — show all history
