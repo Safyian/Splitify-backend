@@ -12,7 +12,27 @@ export const getActivity = async (req, res) => {
     const userGroups = await Group.find({ members: userId }).select('_id');
     const groupIds = userGroups.map((g) => g._id);
 
-    const activities = await Activity.find({ group: { $in: groupIds } })
+    const joinCutoffs = {};
+
+    await Promise.all(
+      userGroups.map(async (group) => {
+        const joinEvent = await Activity.findOne({
+          group: group._id,
+          type: 'member_joined',
+          'metadata.userId': userId,
+        }).sort({ createdAt: -1 });
+
+        // If no join event found they are the creator — show all history
+        joinCutoffs[group._id.toString()] = joinEvent?.createdAt ?? new Date(0);
+      })
+    );
+
+    const activities = await Activity.find({
+      $or: userGroups.map((group) => ({
+        group: group._id,
+        createdAt: { $gte: joinCutoffs[group._id.toString()] },
+      })),
+    })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
