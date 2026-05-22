@@ -32,6 +32,11 @@ const groupSchema = new mongoose.Schema(
       ref: 'User',
       default: null,
     },
+    balanceMode: {
+      type: String,
+      enum: ['simplified', 'pairwise'],
+      default: 'pairwise',
+    },
     settledAt: {
       type: Date,
       default: null

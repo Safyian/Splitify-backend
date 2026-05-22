@@ -110,6 +110,22 @@ export const calculatePairwiseDebts = (memberIds, expenses) => {
   return pairwise;
 };
 
+export const buildBalancesSection = (strategy, { memberIds, expenses, nameMap }) => {
+  if (strategy === 'pairwise') {
+    const pairwiseRaw = calculatePairwiseDebts(memberIds, expenses);
+    return pairwiseRaw.map(({ from, to, amount }) => ({
+      from,
+      fromName: nameMap[from] || 'Unknown',
+      to,
+      toName: nameMap[to] || 'Unknown',
+      amount,
+    }));
+  }
+
+  // simplified — use existing simplifyDebts; caller passes balancesCents directly
+  return [];
+};
+
 export const buildPreview = (strategy, { userId, balancesCents, memberIds, expenses, nameMap }) => {
   if (strategy === 'pairwise') {
     const pairwise = calculatePairwiseDebts(memberIds, expenses);

@@ -10,6 +10,7 @@ import {
   renameGroup,
   updateGroupEmoji,
   updateDefaultSplitType,
+  updateBalanceMode,
   removeMemberFromGroup,
   deleteGroup,
 } from "../controllers/groups.controller.js";
@@ -32,6 +33,7 @@ router.get("/groups/:groupId/settings", protect, getGroupSettings);
 router.patch("/groups/:groupId/name", protect, renameGroup);
 router.patch("/groups/:groupId/emoji", protect, updateGroupEmoji);
 router.patch("/groups/:groupId/settings/split-type", protect, updateDefaultSplitType);
+router.patch("/groups/:groupId/settings/balance-mode", protect, updateBalanceMode);
 
 // ── Broad routes last ─────────────────────────────────────────────────────────
 router.post("/groups/:groupId/leave", protect, leaveGroup);

@@ -177,29 +177,37 @@ export const getGroupBalances = async (req, res) => {
         net: cents / 100,
       }));
 
-    // ── 4. Simplified debts with names ────────────────────────
-    const simplifiedRaw = simplifyDebts(balancesCents);
-    const settlements = simplifiedRaw.map(({ from, to, amount }) => ({
-      from,
-      fromName: nameMap[from] || "Unknown",
-      to,
-      toName: nameMap[to] || "Unknown",
-      amount,
-    }));
-
-    // ── 5. Pairwise direct debts ──────────────────────────────
+    // ── 4. Build debts based on balanceMode ──────────────────
+    const balanceMode = group.balanceMode ?? 'pairwise';
     const memberIds = group.members.map(m => m.toString());
-    const pairwiseRaw = calculatePairwiseDebts(memberIds, expenses);
-    const pairwise = pairwiseRaw.map(({ from, to, amount }) => ({
-      from,
-      fromName: nameMap[from] || 'Unknown',
-      to,
-      toName: nameMap[to] || 'Unknown',
-      amount,
-    }));
-    pairwise.sort((a, b) => b.amount - a.amount);
 
-    res.json({ balances, settlements, pairwise });
+    let debts = [];
+    if (balanceMode === 'pairwise') {
+      const pairwiseRaw = calculatePairwiseDebts(memberIds, expenses);
+      debts = pairwiseRaw.map(({ from, to, amount }) => ({
+        from,
+        fromName: nameMap[from] || 'Unknown',
+        to,
+        toName: nameMap[to] || 'Unknown',
+        amount,
+      })).sort((a, b) => b.amount - a.amount);
+    } else {
+      const simplifiedRaw = simplifyDebts(balancesCents);
+      debts = simplifiedRaw.map(({ from, to, amount }) => ({
+        from,
+        fromName: nameMap[from] || 'Unknown',
+        to,
+        toName: nameMap[to] || 'Unknown',
+        amount,
+      }));
+    }
+
+    res.json({
+      balances,
+      settlements: balanceMode === 'simplified' ? debts : [],
+      pairwise: balanceMode === 'pairwise' ? debts : [],
+      balanceMode,
+    });
 
   } catch (err) {
     res.status(500).json({ message: err.message });

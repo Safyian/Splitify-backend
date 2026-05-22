@@ -167,7 +167,7 @@ export const getGroupsSummary = async (req, res) => {
 
       const memberIds = group.members.map(m => m.toString());
 
-      const preview = buildPreview('simplified', {
+      const preview = buildPreview(group.balanceMode ?? 'pairwise', {
         userId,
         balancesCents: balances,
         memberIds,
@@ -185,6 +185,7 @@ export const getGroupsSummary = async (req, res) => {
         name: group.name,
         emoji: group.emoji ?? '🏠',
         defaultSplitType: group.defaultSplitType ?? 'equal',
+        balanceMode: group.balanceMode ?? 'pairwise',
         createdBy: group.createdBy.toString(),
         adminId: group.adminId?.toString() ?? null,
         balance: { net: netDollars, status },
@@ -326,6 +327,36 @@ export const updateDefaultSplitType = async (req, res) => {
     await group.save();
 
     res.json({ message: 'Default split type updated', defaultSplitType: group.defaultSplitType });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ── Update balance mode ───────────────────────────────────────────────────────
+export const updateBalanceMode = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { balanceMode } = req.body;
+
+    if (!['simplified', 'pairwise'].includes(balanceMode)) {
+      return res.status(400).json({ message: 'Invalid balance mode' });
+    }
+
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ message: 'Group not found' });
+
+    if (!group.members.some(m => m.toString() === req.user._id.toString())) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    if (group.adminId?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only the group admin can change balance mode' });
+    }
+
+    group.balanceMode = balanceMode;
+    await group.save();
+
+    res.json({ message: 'Balance mode updated', balanceMode });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
