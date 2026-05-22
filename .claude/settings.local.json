@@ -4,7 +4,8 @@
       "Bash(npm install:*)",
       "Bash(flutter analyze:*)",
       "Bash(node --check src/controllers/expenses.controller.js)",
-      "Bash(node --check src/models/activity.js)"
+      "Bash(node --check src/models/activity.js)",
+      "Bash(node --check src/controllers/friends.controller.js)"
     ]
   }
 }
