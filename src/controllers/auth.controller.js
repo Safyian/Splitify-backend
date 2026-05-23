@@ -385,6 +385,46 @@ export const resendVerification = async (req, res) => {
 };
 
 /* ================================
+   CHECK CONTACTS
+================================ */
+
+export const checkContacts = async (req, res) => {
+  try {
+    const { emailHashes = [], phoneHashes = [] } = req.body;
+
+    if (emailHashes.length === 0 && phoneHashes.length === 0) {
+      return res.status(400).json({ message: 'No hashes provided' });
+    }
+
+    const emailHashesToCheck = emailHashes.slice(0, 500);
+    const phoneHashesToCheck = phoneHashes.slice(0, 500);
+
+    const users = await User.find({
+      $or: [
+        ...(emailHashesToCheck.length
+          ? [{ emailHash: { $in: emailHashesToCheck } }]
+          : []),
+        ...(phoneHashesToCheck.length
+          ? [{ phoneHash: { $in: phoneHashesToCheck } }]
+          : []),
+      ],
+      _id: { $ne: req.user._id },
+    }).select('name email phone emailHash phoneHash');
+
+    const registered = users.map(u => ({
+      id: u._id,
+      name: u.name,
+      emailHash: u.emailHash ?? null,
+      phoneHash: u.phoneHash ?? null,
+    }));
+
+    res.json({ registered });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/* ================================
    FORGOT PASSWORD — HELPERS
 ================================ */
 

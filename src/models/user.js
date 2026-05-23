@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import { hashContact } from '../utils/hash.helper.js';
 
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
@@ -22,6 +23,18 @@ const userSchema = new mongoose.Schema({
       ref: 'User'
     }
   ],
+  emailHash: {
+    type: String,
+    sparse: true,
+    index: true,
+    default: null,
+  },
+  phoneHash: {
+    type: String,
+    sparse: true,
+    index: true,
+    default: null,
+  },
   isVerified: { type: Boolean, default: false },
   verificationToken: { type: String, select: false },
   verificationTokenExpiry: { type: Date, select: false },
@@ -48,6 +61,15 @@ userSchema.methods.generatePasswordResetToken = function () {
   this.passwordResetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
   return token;
 };
+
+userSchema.pre('save', async function () {
+  if (this.isModified('email') && this.email) {
+    this.emailHash = hashContact(this.email);
+  }
+  if (this.isModified('phone') && this.phone) {
+    this.phoneHash = hashContact(this.phone);
+  }
+});
 
 const User = mongoose.model('User', userSchema);
 export default User;

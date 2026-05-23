@@ -5,7 +5,13 @@
       "Bash(flutter analyze:*)",
       "Bash(node --check src/controllers/expenses.controller.js)",
       "Bash(node --check src/models/activity.js)",
-      "Bash(node --check src/controllers/friends.controller.js)"
+      "Bash(node --check src/controllers/friends.controller.js)",
+      "Bash(node --check src/utils/hash.helper.js)",
+      "Bash(node --check src/models/user.js)",
+      "Bash(node --check src/controllers/auth.controller.js)",
+      "Bash(node --check src/routes/auth.routes.js)",
+      "Bash(node --check src/scripts/backfill-hashes.js)",
+      "Bash(node src/scripts/backfill-hashes.js)"
     ]
   }
 }

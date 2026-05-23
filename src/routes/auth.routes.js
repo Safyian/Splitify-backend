@@ -1,5 +1,5 @@
 import express from 'express';
-import { register, login, logout, getMe, updateMe, deleteMe, verifyEmail, resendVerification, forgotPassword, showResetForm, resetPassword } from '../controllers/auth.controller.js';
+import { register, login, logout, getMe, updateMe, deleteMe, verifyEmail, resendVerification, forgotPassword, showResetForm, resetPassword, checkContacts } from '../controllers/auth.controller.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import protect from "../middleware/auth.middleware.js";
 import { validate } from '../middleware/validate.middleware.js';
@@ -18,6 +18,8 @@ router.delete('/auth/me', protect, deleteMe);
 
 router.get('/auth/verify/:token', asyncHandler(verifyEmail));
 router.post('/auth/resend-verification', asyncHandler(resendVerification));
+
+router.post('/users/check-contacts', protect, asyncHandler(checkContacts));
 
 router.post('/auth/forgot-password', validate(forgotPasswordSchema), asyncHandler(forgotPassword));
 router.get('/auth/reset-password', asyncHandler(showResetForm));
