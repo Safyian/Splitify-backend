@@ -7,10 +7,38 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   email: {
     type: String,
-    required: true,
     unique: true,
+    sparse: true,
     lowercase: true,
     trim: true,
+    default: null,
+  },
+  phone: {
+    type: String,
+    sparse: true,
+    unique: true,
+    trim: true,
+    default: null,
+  },
+  isPhoneVerified: {
+    type: Boolean,
+    default: false,
+  },
+  phoneOtp: {
+    type: String,
+    default: null,
+  },
+  phoneOtpExpiry: {
+    type: Date,
+    default: null,
+  },
+  phoneOtpResendCount: {
+    type: Number,
+    default: 0,
+  },
+  phoneOtpBlockedUntil: {
+    type: Date,
+    default: null,
   },
   password: {
     type: String,

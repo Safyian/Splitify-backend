@@ -14,7 +14,8 @@ export const updateUserSchema = z.object({
 
 export const registerSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(50, 'Name must be at most 50 characters'),
-  email: z.string().check(z.email('Invalid email format')).transform(val => val.toLowerCase()),
+  email: z.string().check(z.email('Invalid email format')).transform(val => val.toLowerCase()).optional(),
+  phone: z.string().optional(),
   password: z
     .string()
     .min(8, 'Password must be at least 8 characters')

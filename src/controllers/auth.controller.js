@@ -5,27 +5,65 @@ import Expense from '../models/expense.js';
 import { calculateGroupBalances } from '../utils/balance.js';
 import { generateToken } from '../utils/token.js';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../utils/email.helper.js';
+import { sendOtp, generateOtp } from '../utils/sms.helper.js';
 
 /* ================================
    REGISTER
 ================================ */
 
 export const register = async (req, res) => {
-  const { name, email, password } = req.body;
-  const normalisedEmail = email.toLowerCase().trim();
+  const { name, email, phone, password } = req.body;
 
-  const userExists = await User.findOne({ email: normalisedEmail });
-  if (userExists) {
-    res.status(400);
-    throw new Error('User already exists');
+  if (!name || name.trim().length < 2) {
+    return res.status(400).json({ message: 'Name must be at least 2 characters' });
+  }
+  if (!email && !phone) {
+    return res.status(400).json({ message: 'Email or phone number is required' });
+  }
+  if (!password || password.length < 8) {
+    return res.status(400).json({ message: 'Password must be at least 8 characters' });
+  }
+  if (!/(?=.*[a-zA-Z])(?=.*[0-9])/.test(password)) {
+    return res.status(400).json({ message: 'Password must contain letters and numbers' });
   }
 
-  const user = await User.create({
-    name,
-    email: normalisedEmail,
-    password
+  const existingUser = await User.findOne({
+    $or: [
+      ...(email ? [{ email: email.toLowerCase().trim() }] : []),
+      ...(phone ? [{ phone: phone.trim() }] : []),
+    ],
+  });
+  if (existingUser) {
+    return res.status(400).json({
+      message:
+        existingUser.email === email?.toLowerCase().trim()
+          ? 'An account with this email already exists'
+          : 'An account with this phone number already exists',
+    });
+  }
+
+  const user = new User({
+    name: name.trim(),
+    password,
+    ...(email ? { email: email.toLowerCase().trim() } : {}),
+    ...(phone ? { phone: phone.trim() } : {}),
   });
 
+  if (phone) {
+    const otp = generateOtp();
+    user.phoneOtp = otp;
+    user.phoneOtpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    user.phoneOtpResendCount = 1;
+    await user.save();
+    await sendOtp(phone.trim(), otp);
+    return res.status(201).json({
+      message: 'OTP sent to your phone number',
+      requiresPhoneVerification: true,
+      userId: user._id,
+    });
+  }
+
+  // Email flow
   const token = user.generateVerificationToken();
   await user.save();
 
@@ -385,37 +423,177 @@ export const resendVerification = async (req, res) => {
 };
 
 /* ================================
+   SEND PHONE OTP
+================================ */
+
+export const sendPhoneOtp = async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ message: 'Phone number is required' });
+
+    const user = await User.findOne({ phone: phone.trim() });
+    if (!user) return res.status(404).json({ message: 'No account found with this phone number' });
+
+    if (user.isPhoneVerified) {
+      return res.status(400).json({ message: 'Phone number already verified' });
+    }
+
+    if (user.phoneOtpBlockedUntil && user.phoneOtpBlockedUntil > new Date()) {
+      const minutesLeft = Math.ceil((user.phoneOtpBlockedUntil - new Date()) / 60000);
+      return res.status(429).json({
+        message: `Too many attempts. Try again in ${minutesLeft > 60 ? Math.ceil(minutesLeft / 60) + ' hours' : minutesLeft + ' minutes'}.`,
+      });
+    }
+
+    if (user.phoneOtpResendCount >= 3) {
+      const blockedUntil = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      user.phoneOtpBlockedUntil = blockedUntil;
+      await user.save();
+      return res.status(429).json({
+        message: 'Too many OTP requests. Your account is blocked for 24 hours.',
+      });
+    }
+
+    const otp = generateOtp();
+    user.phoneOtp = otp;
+    user.phoneOtpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    user.phoneOtpResendCount = (user.phoneOtpResendCount || 0) + 1;
+    await user.save();
+
+    await sendOtp(phone.trim(), otp);
+
+    res.json({
+      message: 'OTP sent successfully',
+      remainingResends: 3 - user.phoneOtpResendCount,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/* ================================
+   VERIFY PHONE OTP
+================================ */
+
+export const verifyPhoneOtp = async (req, res) => {
+  try {
+    const { phone, otp } = req.body;
+    if (!phone || !otp) {
+      return res.status(400).json({ message: 'Phone and OTP are required' });
+    }
+
+    const user = await User.findOne({ phone: phone.trim() });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (user.isPhoneVerified) {
+      return res.status(400).json({ message: 'Phone already verified' });
+    }
+
+    if (!user.phoneOtp || !user.phoneOtpExpiry) {
+      return res.status(400).json({ message: 'No OTP found. Please request a new one.' });
+    }
+
+    if (user.phoneOtpExpiry < new Date()) {
+      return res.status(400).json({ message: 'OTP has expired. Please request a new one.' });
+    }
+
+    if (user.phoneOtp !== otp.trim()) {
+      return res.status(400).json({ message: 'Invalid OTP. Please try again.' });
+    }
+
+    user.isPhoneVerified = true;
+    user.phoneOtp = null;
+    user.phoneOtpExpiry = null;
+    user.phoneOtpResendCount = 0;
+    user.phoneOtpBlockedUntil = null;
+    await user.save();
+
+    res.json({
+      message: 'Phone verified successfully',
+      token: generateToken(user._id),
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email ?? null,
+        phone: user.phone,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/* ================================
+   LOGIN WITH PHONE
+================================ */
+
+export const loginWithPhone = async (req, res) => {
+  try {
+    const { phone, password } = req.body;
+    if (!phone || !password) {
+      return res.status(400).json({ message: 'Phone and password are required' });
+    }
+
+    const user = await User.findOne({ phone: phone.trim() }).select('+password');
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    if (!user.isPhoneVerified) {
+      return res.status(401).json({
+        message: 'Phone not verified',
+        requiresPhoneVerification: true,
+        userId: user._id,
+      });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    res.json({
+      token: generateToken(user._id),
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email ?? null,
+        phone: user.phone,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/* ================================
    CHECK CONTACTS
 ================================ */
 
 export const checkContacts = async (req, res) => {
   try {
-    const { emailHashes = [], phoneHashes = [] } = req.body;
+    const { emails = [], phones = [] } = req.body;
 
-    if (emailHashes.length === 0 && phoneHashes.length === 0) {
-      return res.status(400).json({ message: 'No hashes provided' });
+    if (emails.length === 0 && phones.length === 0) {
+      return res.status(400).json({ message: 'Provide emails or phones to check' });
     }
 
-    const emailHashesToCheck = emailHashes.slice(0, 500);
-    const phoneHashesToCheck = phoneHashes.slice(0, 500);
+    const emailsToCheck = emails.slice(0, 500).map(e => e.toLowerCase().trim());
+    const phonesToCheck = phones.slice(0, 500).map(p => p.trim());
 
     const users = await User.find({
       $or: [
-        ...(emailHashesToCheck.length
-          ? [{ emailHash: { $in: emailHashesToCheck } }]
-          : []),
-        ...(phoneHashesToCheck.length
-          ? [{ phoneHash: { $in: phoneHashesToCheck } }]
-          : []),
+        ...(emailsToCheck.length ? [{ email: { $in: emailsToCheck } }] : []),
+        ...(phonesToCheck.length ? [{ phone: { $in: phonesToCheck } }] : []),
       ],
       _id: { $ne: req.user._id },
-    }).select('name email phone emailHash phoneHash');
+    }).select('name email phone');
 
     const registered = users.map(u => ({
       id: u._id,
       name: u.name,
-      emailHash: u.emailHash ?? null,
-      phoneHash: u.phoneHash ?? null,
+      email: u.email ?? null,
+      phone: u.phone ?? null,
     }));
 
     res.json({ registered });
