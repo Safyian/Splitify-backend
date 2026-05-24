@@ -572,28 +572,32 @@ export const loginWithPhone = async (req, res) => {
 
 export const checkContacts = async (req, res) => {
   try {
-    const { emails = [], phones = [] } = req.body;
+    const { emailHashes = [], phoneHashes = [] } = req.body;
 
-    if (emails.length === 0 && phones.length === 0) {
+    if (emailHashes.length === 0 && phoneHashes.length === 0) {
       return res.json({ registered: [] });
     }
 
-    const emailsToCheck = emails.slice(0, 500).map(e => e.toLowerCase().trim());
-    const phonesToCheck = phones.slice(0, 500).map(p => p.trim());
+    const emailHashesToCheck = emailHashes.slice(0, 500);
+    const phoneHashesToCheck = phoneHashes.slice(0, 500);
 
     const users = await User.find({
       $or: [
-        ...(emailsToCheck.length ? [{ email: { $in: emailsToCheck } }] : []),
-        ...(phonesToCheck.length ? [{ phone: { $in: phonesToCheck } }] : []),
+        ...(emailHashesToCheck.length
+          ? [{ emailHash: { $in: emailHashesToCheck } }]
+          : []),
+        ...(phoneHashesToCheck.length
+          ? [{ phoneHash: { $in: phoneHashesToCheck } }]
+          : []),
       ],
       _id: { $ne: req.user._id },
-    }).select('name email phone');
+    }).select('name emailHash phoneHash');
 
     const registered = users.map(u => ({
       id: u._id,
       name: u.name,
-      email: u.email ?? null,
-      phone: u.phone ?? null,
+      emailHash: u.emailHash ?? null,
+      phoneHash: u.phoneHash ?? null,
     }));
 
     res.json({ registered });
