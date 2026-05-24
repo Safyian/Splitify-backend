@@ -575,7 +575,7 @@ export const checkContacts = async (req, res) => {
     const { emails = [], phones = [] } = req.body;
 
     if (emails.length === 0 && phones.length === 0) {
-      return res.status(400).json({ message: 'Provide emails or phones to check' });
+      return res.json({ registered: [] });
     }
 
     const emailsToCheck = emails.slice(0, 500).map(e => e.toLowerCase().trim());
