@@ -2,6 +2,9 @@ import User from "../models/user.js";
 import Group from "../models/group.js";
 import Expense from "../models/expense.js";
 import { calculateGroupBalances, simplifyDebts, calculatePairwiseDebts } from '../utils/balance.js';
+import PendingFriend from '../models/pending_friend.js';
+import { hashContact } from '../utils/hash.helper.js';
+import crypto from 'crypto';
 
 // ── GET /api/friends ──────────────────────────────────────────────────────────
 // Returns explicit friends + group contacts, each with cross-group balance
@@ -106,7 +109,23 @@ export const getFriends = async (req, res) => {
       return a.name.localeCompare(b.name);
     });
 
-    res.json(contacts);
+    // Fetch pending friends invited by this user
+    const pendingFriends = await PendingFriend.find({ invitedBy: myId });
+
+    const pendingContacts = pendingFriends.map(p => ({
+      id: p._id,
+      name: p.name,
+      email: p.email ?? null,
+      phone: p.phone ?? null,
+      isExplicitFriend: false,
+      isGroupContact: false,
+      isPending: true,
+      balance: { net: 0, status: 'settled' },
+    }));
+
+    const activeContacts = contacts.map(c => ({ ...c, isPending: false }));
+
+    res.json([...activeContacts, ...pendingContacts]);
 
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -177,5 +196,115 @@ export const removeFriend = async (req, res) => {
 
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+};
+
+// ── POST /api/friends/invite ──────────────────────────────────────────────────
+// Invite a contact who is not yet on Splitify
+export const inviteFriend = async (req, res) => {
+  try {
+    const { name, phone, email } = req.body;
+    const myId = req.user._id.toString();
+
+    if (!name || (!phone && !email)) {
+      return res.status(400).json({
+        message: 'Name and phone or email are required',
+      });
+    }
+
+    const phoneHash = phone ? hashContact(phone) : null;
+    const emailHash = email ? hashContact(email.toLowerCase().trim()) : null;
+
+    // Check if already registered
+    const existingUser = await User.findOne({
+      $or: [
+        ...(phoneHash ? [{ phoneHash }] : []),
+        ...(emailHash ? [{ emailHash }] : []),
+      ],
+    });
+
+    if (existingUser) {
+      return res.status(400).json({
+        message: 'This person is already on Splittify. Add them as a friend instead.',
+        isRegistered: true,
+        userId: existingUser._id,
+        name: existingUser.name,
+      });
+    }
+
+    // Check if already invited by this user
+    const existing = await PendingFriend.findOne({
+      invitedBy: myId,
+      $or: [
+        ...(phoneHash ? [{ phoneHash }] : []),
+        ...(emailHash ? [{ emailHash }] : []),
+      ],
+    });
+
+    if (existing) {
+      return res.status(400).json({
+        message: `You've already invited ${name}`,
+      });
+    }
+
+    const inviteToken = crypto.randomBytes(16).toString('hex');
+
+    const pending = await PendingFriend.create({
+      invitedBy: myId,
+      name: name.trim(),
+      phone: phone ?? null,
+      email: email ? email.toLowerCase().trim() : null,
+      phoneHash,
+      emailHash,
+      inviteToken,
+    });
+
+    res.status(201).json({
+      message: 'Invitation created',
+      pending: {
+        id: pending._id,
+        name: pending.name,
+        phone: pending.phone,
+        email: pending.email,
+        status: 'pending',
+        inviteToken: pending.inviteToken,
+        createdAt: pending.createdAt,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ── Called on registration to auto-link pending invites ───────────────────────
+export const linkPendingFriends = async (newUser) => {
+  try {
+    const phoneHash = newUser.phoneHash;
+    const emailHash = newUser.emailHash;
+
+    const pendingRecords = await PendingFriend.find({
+      $or: [
+        ...(phoneHash ? [{ phoneHash }] : []),
+        ...(emailHash ? [{ emailHash }] : []),
+      ],
+    });
+
+    for (const pending of pendingRecords) {
+      const inviter = await User.findById(pending.invitedBy);
+      if (!inviter) continue;
+
+      if (!inviter.friends.includes(newUser._id)) {
+        inviter.friends.push(newUser._id);
+        await inviter.save();
+      }
+      if (!newUser.friends.includes(inviter._id)) {
+        newUser.friends.push(inviter._id);
+        await newUser.save();
+      }
+
+      await pending.deleteOne();
+    }
+  } catch (err) {
+    console.error('linkPendingFriends error:', err);
   }
 };

@@ -6,6 +6,7 @@ import { calculateGroupBalances } from '../utils/balance.js';
 import { generateToken } from '../utils/token.js';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../utils/email.helper.js';
 import { sendOtp, generateOtp } from '../utils/sms.helper.js';
+import { linkPendingFriends } from './friends.controller.js';
 
 /* ================================
    REGISTER
@@ -298,6 +299,7 @@ export const verifyEmail = async (req, res) => {
   user.verificationToken = undefined;
   user.verificationTokenExpiry = undefined;
   await user.save();
+  await linkPendingFriends(user);
 
   return res.send(`
     <!DOCTYPE html>
@@ -507,6 +509,7 @@ export const verifyPhoneOtp = async (req, res) => {
     user.phoneOtpResendCount = 0;
     user.phoneOtpBlockedUntil = null;
     await user.save();
+    await linkPendingFriends(user);
 
     res.json({
       message: 'Phone verified successfully',
@@ -573,12 +576,6 @@ export const loginWithPhone = async (req, res) => {
 export const checkContacts = async (req, res) => {
   try {
     const { emailHashes = [], phoneHashes = [] } = req.body;
-
-    console.log('=== checkContacts ===');
-    console.log('emailHashes count:', emailHashes.length);
-    console.log('phoneHashes count:', phoneHashes.length);
-    console.log('phoneHashes sample:', phoneHashes.slice(0, 3));
-    console.log('emailHashes sample:', emailHashes.slice(0, 3));
 
     if (emailHashes.length === 0 && phoneHashes.length === 0) {
       return res.json({ registered: [] });

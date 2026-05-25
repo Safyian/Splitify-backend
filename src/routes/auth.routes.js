@@ -17,6 +17,7 @@ import {
   resetPassword,
   checkContacts,
 } from '../controllers/auth.controller.js';
+import { inviteFriend } from '../controllers/friends.controller.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import protect from "../middleware/auth.middleware.js";
 import { validate } from '../middleware/validate.middleware.js';
@@ -47,6 +48,7 @@ router.post('/auth/verify-phone-otp', authLimiter, asyncHandler(verifyPhoneOtp))
 router.post('/auth/login-phone', authLimiter, asyncHandler(loginWithPhone));
 
 router.post('/users/check-contacts', protect, asyncHandler(checkContacts));
+router.post('/friends/invite', protect, asyncHandler(inviteFriend));
 
 router.post('/auth/forgot-password', validate(forgotPasswordSchema), asyncHandler(forgotPassword));
 router.get('/auth/reset-password', asyncHandler(showResetForm));
