@@ -9,21 +9,36 @@ export const getActivity = async (req, res) => {
     const limit = parseInt(req.query.limit) || 30;
     const skip = (page - 1) * limit;
 
-    const userGroups = await Group.find({ members: userId }).select('_id');
+    const userGroups = await Group.find({ members: userId }).select('_id createdBy createdAt');
     const groupIds = userGroups.map((g) => g._id);
 
     const joinCutoffs = {};
 
     await Promise.all(
       userGroups.map(async (group) => {
+        // Check if user is group creator — show all history
+        const isCreator = group.createdBy?.toString() === userId.toString();
+        if (isCreator) {
+          joinCutoffs[group._id.toString()] = new Date(0);
+          return;
+        }
+
+        // Find latest member_added event for this user in this group
         const joinEvent = await Activity.findOne({
           group: group._id,
           type: 'member_added',
           'metadata.targetId': userId,
         }).sort({ createdAt: -1 });
 
-        // If no join event found they are the creator — show all history
-        joinCutoffs[group._id.toString()] = joinEvent?.createdAt ?? new Date(0);
+        if (joinEvent) {
+          // Show from when they were added
+          joinCutoffs[group._id.toString()] = joinEvent.createdAt;
+        } else {
+          // No join event found and not creator
+          // Use group createdAt as safe fallback
+          // This handles edge cases like phone registration + manual group add
+          joinCutoffs[group._id.toString()] = group.createdAt ?? new Date(0);
+        }
       })
     );
 
