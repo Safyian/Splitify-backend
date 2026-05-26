@@ -550,36 +550,13 @@ export const loginWithPhone = async (req, res) => {
     }
 
     // Only after correct password, check if phone is verified
-    if (!user.isPhoneVerified) {
-      // Check if blocked
-      if (user.phoneOtpBlockedUntil && user.phoneOtpBlockedUntil > new Date()) {
-        const minutesLeft = Math.ceil(
-          (user.phoneOtpBlockedUntil - new Date()) / 60000
-        );
-        return res.status(429).json({
-          message: `Too many attempts. Try again in ${
-            minutesLeft > 60
-              ? Math.ceil(minutesLeft / 60) + ' hours'
-              : minutesLeft + ' minutes'
-          }.`,
-        });
-      }
-
-      // Send fresh OTP
-      const otp = generateOtp();
-      const expiry = new Date(Date.now() + 10 * 60 * 1000);
-      user.phoneOtp = otp;
-      user.phoneOtpExpiry = expiry;
-      user.phoneOtpResendCount = 1;
-      await user.save();
-      await sendOtp(user.phone, otp);
-
-      return res.status(401).json({
-        message: 'Phone not verified. We sent a new OTP to your number.',
-        requiresPhoneVerification: true,
-        phone: user.phone,
-      });
-    }
+      if (!user.isPhoneVerified) {
+    return res.status(200).json({
+      requiresPhoneVerification: true,
+      phone: user.phone,
+      message: 'Please verify your phone number.',
+    });
+  }
 
     res.json({
       token: generateToken(user._id),
