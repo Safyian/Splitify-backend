@@ -42,6 +42,18 @@ export const getActivity = async (req, res) => {
       })
     );
 
+    if (groupIds.length === 0) {
+      return res.json({
+        activities: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          hasMore: false,
+        },
+      });
+    }
+
     const activities = await Activity.find({
       $or: userGroups.map((group) => ({
         group: group._id,
