@@ -102,13 +102,14 @@ export const login = async (req, res) => {
   }
 
   res.status(200).json({
-  token: generateToken(user._id),
-  user: {
-    id: user._id,
-    name: user.name,
-    email: user.email
-  }
-});
+    token: generateToken(user._id),
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email ?? null,
+      phone: user.phone ?? null,
+    },
+  });
 };
 
 /* ================================
@@ -542,17 +543,42 @@ export const loginWithPhone = async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    if (!user.isPhoneVerified) {
-      return res.status(401).json({
-        message: 'Phone not verified',
-        requiresPhoneVerification: true,
-        userId: user._id,
-      });
-    }
-
+    // Check password BEFORE checking verification status
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // Only after correct password, check if phone is verified
+    if (!user.isPhoneVerified) {
+      // Check if blocked
+      if (user.phoneOtpBlockedUntil && user.phoneOtpBlockedUntil > new Date()) {
+        const minutesLeft = Math.ceil(
+          (user.phoneOtpBlockedUntil - new Date()) / 60000
+        );
+        return res.status(429).json({
+          message: `Too many attempts. Try again in ${
+            minutesLeft > 60
+              ? Math.ceil(minutesLeft / 60) + ' hours'
+              : minutesLeft + ' minutes'
+          }.`,
+        });
+      }
+
+      // Send fresh OTP
+      const otp = generateOtp();
+      const expiry = new Date(Date.now() + 10 * 60 * 1000);
+      user.phoneOtp = otp;
+      user.phoneOtpExpiry = expiry;
+      user.phoneOtpResendCount = 1;
+      await user.save();
+      await sendOtp(user.phone, otp);
+
+      return res.status(401).json({
+        message: 'Phone not verified. We sent a new OTP to your number.',
+        requiresPhoneVerification: true,
+        phone: user.phone,
+      });
     }
 
     res.json({
@@ -561,7 +587,7 @@ export const loginWithPhone = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email ?? null,
-        phone: user.phone,
+        phone: user.phone ?? null,
       },
     });
   } catch (err) {
