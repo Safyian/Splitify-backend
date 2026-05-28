@@ -176,6 +176,50 @@ export const addFriend = async (req, res) => {
   }
 };
 
+// ── POST /api/friends/add-by-id ───────────────────────────────────────────────
+// Add a friend by user ID (used after checkContacts finds a registered user)
+export const addFriendById = async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ message: 'User ID is required' });
+    }
+
+    // Can't add yourself
+    if (userId === req.user._id.toString()) {
+      return res.status(400).json({ message: 'You cannot add yourself as a friend' });
+    }
+
+    const userToAdd = await User.findById(userId);
+    if (!userToAdd) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const me = await User.findById(req.user._id);
+
+    // Already a friend
+    if (me.friends.some(f => f.toString() === userId)) {
+      return res.status(400).json({ message: 'Already in your friends list' });
+    }
+
+    me.friends.push(userToAdd._id);
+    await me.save();
+
+    res.status(201).json({
+      message: 'Friend added successfully',
+      friend: {
+        id: userToAdd._id,
+        name: userToAdd.name,
+        email: userToAdd.email ?? null,
+        phone: userToAdd.phone ?? null,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 // ── DELETE /api/friends/:friendId ─────────────────────────────────────────────
 // Remove an explicit friend
 export const removeFriend = async (req, res) => {
