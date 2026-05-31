@@ -91,13 +91,21 @@ export const addMemberToGroup = async (req, res) => {
     });
 
     if (!targetUser) {
-      // No account found — create a placeholder
-      targetUser = await User.create({
+      // No account found — create a placeholder; omit absent fields so null
+      // doesn't collide with the partial unique index
+      const placeholderData = {
         name: (name && name.trim()) || email || phone || 'Invited',
-        email: email ? email.toLowerCase().trim() : null,
-        phone: phone ? phone.trim() : null,
         isPlaceholder: true,
-      });
+      };
+      if (email) {
+        placeholderData.email = email.toLowerCase().trim();
+        placeholderData.emailHash = emailHash;
+      }
+      if (phone) {
+        placeholderData.phone = phone.trim();
+        placeholderData.phoneHash = phoneHash;
+      }
+      targetUser = await User.create(placeholderData);
     }
   }
 

@@ -7,16 +7,12 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   email: {
     type: String,
-    unique: true,
-    sparse: true,
     lowercase: true,
     trim: true,
     default: null,
   },
   phone: {
     type: String,
-    sparse: true,
-    unique: true,
     trim: true,
     default: null,
   },
@@ -54,14 +50,10 @@ const userSchema = new mongoose.Schema({
   ],
   emailHash: {
     type: String,
-    sparse: true,
-    index: true,
     default: null,
   },
   phoneHash: {
     type: String,
-    sparse: true,
-    index: true,
     default: null,
   },
   isVerified: { type: Boolean, default: false },
@@ -100,6 +92,24 @@ userSchema.pre('save', async function () {
     this.phoneHash = hashContact(this.phone);
   }
 });
+
+// Partial unique indexes — only index real string values, skip null/absent
+userSchema.index(
+  { email: 1 },
+  { unique: true, partialFilterExpression: { email: { $type: 'string' } } }
+);
+userSchema.index(
+  { phone: 1 },
+  { unique: true, partialFilterExpression: { phone: { $type: 'string' } } }
+);
+userSchema.index(
+  { emailHash: 1 },
+  { partialFilterExpression: { emailHash: { $type: 'string' } } }
+);
+userSchema.index(
+  { phoneHash: 1 },
+  { partialFilterExpression: { phoneHash: { $type: 'string' } } }
+);
 
 const User = mongoose.model('User', userSchema);
 export default User;
