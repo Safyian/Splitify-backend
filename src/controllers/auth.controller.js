@@ -7,6 +7,7 @@ import { generateToken } from '../utils/token.js';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../utils/email.helper.js';
 import { sendOtp, generateOtp } from '../utils/sms.helper.js';
 import { linkPendingFriends } from './friends.controller.js';
+import { hashContact } from '../utils/hash.helper.js';
 
 /* ================================
    REGISTER
@@ -28,7 +29,22 @@ export const register = async (req, res) => {
     return res.status(400).json({ message: 'Password must contain letters and numbers' });
   }
 
+  // Compute hashes for placeholder lookup
+  const emailHash = email ? hashContact(email.toLowerCase().trim()) : null;
+  const phoneHash = phone ? hashContact(phone.trim()) : null;
+
+  // Check for a placeholder to promote (must happen before duplicate check)
+  const placeholder = (emailHash || phoneHash) ? await User.findOne({
+    isPlaceholder: true,
+    $or: [
+      ...(emailHash ? [{ emailHash }] : []),
+      ...(phoneHash ? [{ phoneHash }] : []),
+    ],
+  }) : null;
+
+  // Duplicate check — exclude placeholders so a ghost doesn't block real registration
   const existingUser = await User.findOne({
+    isPlaceholder: { $ne: true },
     $or: [
       ...(email ? [{ email: email.toLowerCase().trim() }] : []),
       ...(phone ? [{ phone: phone.trim() }] : []),
@@ -43,12 +59,25 @@ export const register = async (req, res) => {
     });
   }
 
-  const user = new User({
-    name: name.trim(),
-    password,
-    ...(email ? { email: email.toLowerCase().trim() } : {}),
-    ...(phone ? { phone: phone.trim() } : {}),
-  });
+  let user;
+
+  if (placeholder) {
+    // Promote the placeholder — reuse its _id so group/expense history is intact
+    placeholder.name = name.trim();
+    placeholder.password = password; // pre-save hook will hash this
+    placeholder.isPlaceholder = false;
+    placeholder.isVerified = false;
+    if (email) placeholder.email = email.toLowerCase().trim();
+    if (phone) placeholder.phone = phone.trim();
+    user = placeholder;
+  } else {
+    user = new User({
+      name: name.trim(),
+      password,
+      ...(email ? { email: email.toLowerCase().trim() } : {}),
+      ...(phone ? { phone: phone.trim() } : {}),
+    });
+  }
 
   if (phone) {
     const otp = generateOtp();
@@ -88,6 +117,11 @@ export const login = async (req, res) => {
   if (!user) {
     res.status(401);
     throw new Error('Invalid credentials');
+  }
+
+  if (user.isPlaceholder) {
+    res.status(400);
+    throw new Error("This account hasn't been set up yet. Please register to claim it.");
   }
 
   const isMatch = await bcrypt.compare(password, user.password);
@@ -541,6 +575,12 @@ export const loginWithPhone = async (req, res) => {
     const user = await User.findOne({ phone: phone.trim() }).select('+password');
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    if (user.isPlaceholder) {
+      return res.status(400).json({
+        message: "This account hasn't been set up yet. Please register to claim it.",
+      });
     }
 
     // Check password BEFORE checking verification status

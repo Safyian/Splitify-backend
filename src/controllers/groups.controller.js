@@ -4,6 +4,7 @@ import Expense from "../models/expense.js";
 import Activity from "../models/activity.js";
 import { calculateGroupBalances, calculatePairwiseDebts, simplifyDebts, buildPreview } from '../utils/balance.js';
 import { logActivity } from '../utils/activity.helper.js';
+import { hashContact } from '../utils/hash.helper.js';
 
 export const createGroup = async (req, res) => {
   const { name } = req.body;
@@ -59,42 +60,67 @@ export const getMyGroups = async (req, res) => {
 // ── Add a member to a group ───────────────────────────────────────────────────
 export const addMemberToGroup = async (req, res) => {
   const { groupId } = req.params;
-  const { email } = req.body;
+  const { userId, email, phone, name } = req.body;
 
-  if (!email) {
-    return res.status(400).json({ message: 'Email is required' });
+  if (!userId && !email && !phone) {
+    return res.status(400).json({ message: 'userId, email, or phone is required' });
   }
 
   const group = await Group.findById(groupId);
   if (!group) return res.status(404).json({ message: 'Group not found' });
 
-  if (!group.members.includes(req.user._id)) {
+  if (!group.members.some(m => m.toString() === req.user._id.toString())) {
     return res.status(403).json({ message: 'Not authorized to add members' });
   }
 
-  const userToAdd = await User.findOne({ email });
-  if (!userToAdd) {
-    return res.status(404).json({ message: 'User not found. Invite flow coming next.' });
+  let targetUser;
+
+  if (userId) {
+    targetUser = await User.findById(userId);
+    if (!targetUser) return res.status(404).json({ message: 'User not found' });
+  } else {
+    const emailHash = email ? hashContact(email.toLowerCase().trim()) : null;
+    const phoneHash = phone ? hashContact(phone.trim()) : null;
+
+    // Reuse existing user or placeholder if hash matches
+    targetUser = await User.findOne({
+      $or: [
+        ...(emailHash ? [{ emailHash }] : []),
+        ...(phoneHash ? [{ phoneHash }] : []),
+      ],
+    });
+
+    if (!targetUser) {
+      // No account found — create a placeholder
+      targetUser = await User.create({
+        name: (name && name.trim()) || email || phone || 'Invited',
+        email: email ? email.toLowerCase().trim() : null,
+        phone: phone ? phone.trim() : null,
+        isPlaceholder: true,
+      });
+    }
   }
 
-  if (group.members.includes(userToAdd._id)) {
-    return res.status(400).json({ message: 'User already a member of the group' });
+  if (group.members.some(m => m.toString() === targetUser._id.toString())) {
+    return res.status(409).json({ message: 'Already a member' });
   }
 
-  group.members.push(userToAdd._id);
+  group.members.push(targetUser._id);
   await group.save();
 
   await logActivity({
     type: 'member_added',
     actor: req.user,
     group,
-    metadata: { targetName: userToAdd.name, targetId: userToAdd._id },
+    metadata: { targetName: targetUser.name, targetId: targetUser._id },
   });
 
   res.status(200).json({
     message: 'Member added successfully',
     groupId: group._id,
-    memberId: userToAdd._id,
+    memberId: targetUser._id,
+    name: targetUser.name,
+    isPlaceholder: targetUser.isPlaceholder,
   });
 };
 
@@ -204,7 +230,7 @@ export const getGroupsSummary = async (req, res) => {
 export const getGroupMembers = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const group = await Group.findById(groupId).populate('members', 'name email');
+    const group = await Group.findById(groupId).populate('members', 'name email isPlaceholder');
     if (!group) return res.status(404).json({ message: 'Group not found' });
 
     const isMember = group.members.some(
@@ -213,7 +239,12 @@ export const getGroupMembers = async (req, res) => {
     if (!isMember) return res.status(403).json({ message: 'Not authorized' });
 
     res.status(200).json({
-      members: group.members.map((m) => ({ id: m._id, name: m.name, email: m.email })),
+      members: group.members.map((m) => ({
+        id: m._id,
+        name: m.name,
+        email: m.email,
+        isPlaceholder: m.isPlaceholder ?? false,
+      })),
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -225,7 +256,7 @@ export const getGroupSettings = async (req, res) => {
   try {
     const { groupId } = req.params;
     const group = await Group.findById(groupId)
-      .populate('members', 'name email')
+      .populate('members', 'name email isPlaceholder')
       .populate('createdBy', 'name');
 
     if (!group) return res.status(404).json({ message: 'Group not found' });
@@ -242,7 +273,12 @@ export const getGroupSettings = async (req, res) => {
       defaultSplitType: group.defaultSplitType ?? 'equal',
       createdBy: { id: group.createdBy._id, name: group.createdBy.name },
       adminId: group.adminId?.toString() ?? null,
-      members: group.members.map((m) => ({ id: m._id, name: m.name, email: m.email })),
+      members: group.members.map((m) => ({
+        id: m._id,
+        name: m.name,
+        email: m.email,
+        isPlaceholder: m.isPlaceholder ?? false,
+      })),
       createdAt: group.createdAt,
     });
   } catch (err) {
