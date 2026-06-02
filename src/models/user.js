@@ -50,10 +50,14 @@ const userSchema = new mongoose.Schema({
   ],
   emailHash: {
     type: String,
+    sparse: true,
+    index: true,
     default: null,
   },
   phoneHash: {
     type: String,
+    sparse: true,
+    index: true,
     default: null,
   },
   isVerified: { type: Boolean, default: false },
@@ -101,14 +105,6 @@ userSchema.index(
 userSchema.index(
   { phone: 1 },
   { unique: true, partialFilterExpression: { phone: { $type: 'string' } } }
-);
-userSchema.index(
-  { emailHash: 1 },
-  { partialFilterExpression: { emailHash: { $type: 'string' } } }
-);
-userSchema.index(
-  { phoneHash: 1 },
-  { partialFilterExpression: { phoneHash: { $type: 'string' } } }
 );
 
 const User = mongoose.model('User', userSchema);
