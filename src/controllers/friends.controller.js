@@ -2,9 +2,7 @@ import User from "../models/user.js";
 import Group from "../models/group.js";
 import Expense from "../models/expense.js";
 import { calculateGroupBalances, simplifyDebts, calculatePairwiseDebts } from '../utils/balance.js';
-import PendingFriend from '../models/pending_friend.js';
 import { hashContact } from '../utils/hash.helper.js';
-import crypto from 'crypto';
 
 // ── GET /api/friends ──────────────────────────────────────────────────────────
 // Returns explicit friends + group contacts, each with cross-group balance
@@ -12,8 +10,8 @@ export const getFriends = async (req, res) => {
   try {
     const myId = req.user._id.toString();
 
-    // 1. Fetch explicit friends
-    const me = await User.findById(myId).populate("friends", "name email");
+    // 1. Fetch explicit friends (include phone + isPlaceholder for badge/display)
+    const me = await User.findById(myId).populate("friends", "name email phone isPlaceholder");
     const explicitFriendIds = new Set(
       me.friends.map(f => f._id.toString())
     );
@@ -33,15 +31,15 @@ export const getFriends = async (req, res) => {
     // 4. Fetch group-mate user details
     const groupMateUsers = await User.find({
       _id: { $in: [...groupMateIds] }
-    }).select("name email");
+    }).select("name email phone isPlaceholder");
 
-    // 5. Build a map of userId → { name, email }
+    // 5. Build a map of userId → { name, email, phone, isPlaceholder }
     const userMap = {};
     me.friends.forEach(f => {
-      userMap[f._id.toString()] = { name: f.name, email: f.email };
+      userMap[f._id.toString()] = { name: f.name, email: f.email, phone: f.phone ?? null, isPlaceholder: f.isPlaceholder ?? false };
     });
     groupMateUsers.forEach(u => {
-      userMap[u._id.toString()] = { name: u.name, email: u.email };
+      userMap[u._id.toString()] = { name: u.name, email: u.email, phone: u.phone ?? null, isPlaceholder: u.isPlaceholder ?? false };
     });
 
     // 6. Compute cross-group net balance per person
@@ -92,6 +90,8 @@ export const getFriends = async (req, res) => {
         id: uid,
         name: user.name,
         email: user.email,
+        phone: user.phone,
+        isPlaceholder: user.isPlaceholder,
         isExplicitFriend,
         isGroupContact,
         balance: {
@@ -109,23 +109,7 @@ export const getFriends = async (req, res) => {
       return a.name.localeCompare(b.name);
     });
 
-    // Fetch pending friends invited by this user
-    const pendingFriends = await PendingFriend.find({ invitedBy: myId });
-
-    const pendingContacts = pendingFriends.map(p => ({
-      id: p._id,
-      name: p.name,
-      email: p.email ?? null,
-      phone: p.phone ?? null,
-      isExplicitFriend: false,
-      isGroupContact: false,
-      isPending: true,
-      balance: { net: 0, status: 'settled' },
-    }));
-
-    const activeContacts = contacts.map(c => ({ ...c, isPending: false }));
-
-    res.json([...activeContacts, ...pendingContacts]);
+    res.json(contacts);
 
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -147,7 +131,7 @@ export const addFriend = async (req, res) => {
       return res.status(400).json({ message: "You cannot add yourself as a friend" });
     }
 
-    const userToAdd = await User.findOne({ email });
+    const userToAdd = await User.findOne({ email, isPlaceholder: { $ne: true } });
     if (!userToAdd) {
       return res.status(404).json({ message: "No Splitify account found with that email" });
     }
@@ -159,15 +143,22 @@ export const addFriend = async (req, res) => {
       return res.status(400).json({ message: "Already in your friends list" });
     }
 
+    // Bidirectional friendship
     me.friends.push(userToAdd._id);
+    if (!userToAdd.friends.some(f => f.toString() === req.user._id.toString())) {
+      userToAdd.friends.push(req.user._id);
+    }
     await me.save();
+    await userToAdd.save();
 
     res.status(201).json({
       message: "Friend added successfully",
       friend: {
         id: userToAdd._id,
         name: userToAdd.name,
-        email: userToAdd.email
+        email: userToAdd.email ?? null,
+        phone: userToAdd.phone ?? null,
+        isPlaceholder: false,
       }
     });
 
@@ -203,8 +194,13 @@ export const addFriendById = async (req, res) => {
       return res.status(400).json({ message: 'Already in your friends list' });
     }
 
+    // Bidirectional friendship
     me.friends.push(userToAdd._id);
+    if (!userToAdd.friends.some(f => f.toString() === req.user._id.toString())) {
+      userToAdd.friends.push(req.user._id);
+    }
     await me.save();
+    await userToAdd.save();
 
     res.status(201).json({
       message: 'Friend added successfully',
@@ -213,6 +209,7 @@ export const addFriendById = async (req, res) => {
         name: userToAdd.name,
         email: userToAdd.email ?? null,
         phone: userToAdd.phone ?? null,
+        isPlaceholder: userToAdd.isPlaceholder ?? false,
       },
     });
   } catch (err) {
@@ -221,20 +218,36 @@ export const addFriendById = async (req, res) => {
 };
 
 // ── DELETE /api/friends/:friendId ─────────────────────────────────────────────
-// Remove an explicit friend
+// Remove an explicit friend (bidirectional). Cleans up orphaned placeholders.
 export const removeFriend = async (req, res) => {
   try {
     const { friendId } = req.params;
+    const myId = req.user._id.toString();
 
-    const me = await User.findById(req.user._id);
-
+    const me = await User.findById(myId);
     const exists = me.friends.some(f => f.toString() === friendId);
     if (!exists) {
       return res.status(404).json({ message: "Friend not found in your list" });
     }
 
+    // Remove from both sides
     me.friends = me.friends.filter(f => f.toString() !== friendId);
     await me.save();
+
+    const friend = await User.findById(friendId);
+    if (friend) {
+      friend.friends = friend.friends.filter(f => f.toString() !== myId);
+      await friend.save();
+
+      // If the removed friend is a placeholder, delete it only when unreferenced
+      if (friend.isPlaceholder) {
+        const inGroup    = await Group.exists({ members: friendId });
+        const inFriends  = await User.exists({ friends: friendId });
+        if (!inGroup && !inFriends) {
+          await User.deleteOne({ _id: friendId });
+        }
+      }
+    }
 
     res.json({ message: "Friend removed successfully" });
 
@@ -244,11 +257,11 @@ export const removeFriend = async (req, res) => {
 };
 
 // ── POST /api/friends/invite ──────────────────────────────────────────────────
-// Invite a contact who is not yet on Splitify
+// Invite an unregistered contact — creates/reuses a placeholder User, links bidirectionally
 export const inviteFriend = async (req, res) => {
   try {
     const { name, phone, email } = req.body;
-    const myId = req.user._id.toString();
+    const myId = req.user._id;
 
     if (!name || (!phone && !email)) {
       return res.status(400).json({
@@ -256,63 +269,61 @@ export const inviteFriend = async (req, res) => {
       });
     }
 
-    const phoneHash = phone ? hashContact(phone) : null;
     const emailHash = email ? hashContact(email.toLowerCase().trim()) : null;
+    const phoneHash = phone ? hashContact(phone.trim()) : null;
 
-    // Check if already registered
-    const existingUser = await User.findOne({
+    // Look for any existing user or placeholder by hash
+    let target = await User.findOne({
       $or: [
-        ...(phoneHash ? [{ phoneHash }] : []),
         ...(emailHash ? [{ emailHash }] : []),
+        ...(phoneHash ? [{ phoneHash }] : []),
       ],
     });
 
-    if (existingUser) {
+    if (target && !target.isPlaceholder) {
+      // Already a real registered user — tell client to use addFriendById instead
       return res.status(400).json({
-        message: 'This person is already on Splittify. Add them as a friend instead.',
+        message: 'This person is already on Splitify. Add them as a friend instead.',
         isRegistered: true,
-        userId: existingUser._id,
-        name: existingUser.name,
+        userId: target._id,
+        name: target.name,
       });
     }
 
-    // Check if already invited by this user
-    const existing = await PendingFriend.findOne({
-      invitedBy: myId,
-      $or: [
-        ...(phoneHash ? [{ phoneHash }] : []),
-        ...(emailHash ? [{ emailHash }] : []),
-      ],
-    });
+    const me = await User.findById(myId);
 
-    if (existing) {
-      return res.status(400).json({
-        message: `You've already invited ${name}`,
+    if (!target) {
+      // No record at all — create a placeholder (omit absent fields, never set null)
+      const data = { name: name.trim(), isPlaceholder: true };
+      if (email) { data.email = email.toLowerCase().trim(); data.emailHash = emailHash; }
+      if (phone) { data.phone = phone.trim(); data.phoneHash = phoneHash; }
+      target = await User.create(data);
+    }
+
+    // Already in friends list?
+    if (me.friends.some(f => f.toString() === target._id.toString())) {
+      return res.status(409).json({
+        message: 'Already in your friends list',
+        friend: { id: target._id, name: target.name, isPlaceholder: target.isPlaceholder },
       });
     }
 
-    const inviteToken = crypto.randomBytes(16).toString('hex');
-
-    const pending = await PendingFriend.create({
-      invitedBy: myId,
-      name: name.trim(),
-      phone: phone ?? null,
-      email: email ? email.toLowerCase().trim() : null,
-      phoneHash,
-      emailHash,
-      inviteToken,
-    });
+    // Bidirectional friendship so promotion needs no extra linking step
+    me.friends.push(target._id);
+    if (!target.friends.some(f => f.toString() === myId.toString())) {
+      target.friends.push(myId);
+    }
+    await me.save();
+    await target.save();
 
     res.status(201).json({
       message: 'Invitation created',
-      pending: {
-        id: pending._id,
-        name: pending.name,
-        phone: pending.phone,
-        email: pending.email,
-        status: 'pending',
-        inviteToken: pending.inviteToken,
-        createdAt: pending.createdAt,
+      friend: {
+        id: target._id,
+        name: target.name,
+        email: target.email ?? null,
+        phone: target.phone ?? null,
+        isPlaceholder: true,
       },
     });
   } catch (err) {
@@ -320,35 +331,3 @@ export const inviteFriend = async (req, res) => {
   }
 };
 
-// ── Called on registration to auto-link pending invites ───────────────────────
-export const linkPendingFriends = async (newUser) => {
-  try {
-    const phoneHash = newUser.phoneHash;
-    const emailHash = newUser.emailHash;
-
-    const pendingRecords = await PendingFriend.find({
-      $or: [
-        ...(phoneHash ? [{ phoneHash }] : []),
-        ...(emailHash ? [{ emailHash }] : []),
-      ],
-    });
-
-    for (const pending of pendingRecords) {
-      const inviter = await User.findById(pending.invitedBy);
-      if (!inviter) continue;
-
-      if (!inviter.friends.includes(newUser._id)) {
-        inviter.friends.push(newUser._id);
-        await inviter.save();
-      }
-      if (!newUser.friends.includes(inviter._id)) {
-        newUser.friends.push(inviter._id);
-        await newUser.save();
-      }
-
-      await pending.deleteOne();
-    }
-  } catch (err) {
-    console.error('linkPendingFriends error:', err);
-  }
-};

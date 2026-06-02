@@ -238,7 +238,7 @@ export const getGroupsSummary = async (req, res) => {
 export const getGroupMembers = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const group = await Group.findById(groupId).populate('members', 'name email isPlaceholder');
+    const group = await Group.findById(groupId).populate('members', 'name email phone isPlaceholder');
     if (!group) return res.status(404).json({ message: 'Group not found' });
 
     const isMember = group.members.some(
@@ -251,6 +251,7 @@ export const getGroupMembers = async (req, res) => {
         id: m._id,
         name: m.name,
         email: m.email,
+        phone: m.phone,
         isPlaceholder: m.isPlaceholder ?? false,
       })),
     });
@@ -264,7 +265,7 @@ export const getGroupSettings = async (req, res) => {
   try {
     const { groupId } = req.params;
     const group = await Group.findById(groupId)
-      .populate('members', 'name email isPlaceholder')
+      .populate('members', 'name email phone isPlaceholder')
       .populate('createdBy', 'name');
 
     if (!group) return res.status(404).json({ message: 'Group not found' });
@@ -285,6 +286,7 @@ export const getGroupSettings = async (req, res) => {
         id: m._id,
         name: m.name,
         email: m.email,
+        phone: m.phone,
         isPlaceholder: m.isPlaceholder ?? false,
       })),
       createdAt: group.createdAt,

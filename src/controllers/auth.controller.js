@@ -6,7 +6,6 @@ import { calculateGroupBalances } from '../utils/balance.js';
 import { generateToken } from '../utils/token.js';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../utils/email.helper.js';
 import { sendOtp, generateOtp } from '../utils/sms.helper.js';
-import { linkPendingFriends } from './friends.controller.js';
 import { hashContact } from '../utils/hash.helper.js';
 
 /* ================================
@@ -334,7 +333,6 @@ export const verifyEmail = async (req, res) => {
   user.verificationToken = undefined;
   user.verificationTokenExpiry = undefined;
   await user.save();
-  await linkPendingFriends(user);
 
   return res.send(`
     <!DOCTYPE html>
@@ -544,7 +542,6 @@ export const verifyPhoneOtp = async (req, res) => {
     user.phoneOtpResendCount = 0;
     user.phoneOtpBlockedUntil = null;
     await user.save();
-    await linkPendingFriends(user);
 
     res.json({
       message: 'Phone verified successfully',
@@ -637,6 +634,7 @@ export const checkContacts = async (req, res) => {
           : []),
       ],
       _id: { $ne: req.user._id },
+      isPlaceholder: { $ne: true },
     }).select('name emailHash phoneHash');
 
     const registered = users.map(u => ({

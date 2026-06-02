@@ -1,5 +1,5 @@
 import express from "express";
-import { getFriends, addFriend, addFriendById, removeFriend, inviteFriend } from "../controllers/friends.controller.js";
+import { getFriends, addFriend, addFriendById, removeFriend } from "../controllers/friends.controller.js";
 import protect from "../middleware/auth.middleware.js";
 import asyncHandler from "../utils/asyncHandler.js";
 
