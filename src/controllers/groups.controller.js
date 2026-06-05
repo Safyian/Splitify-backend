@@ -123,13 +123,15 @@ export const addMemberToGroup = async (req, res) => {
     metadata: { targetName: targetUser.name, targetId: targetUser._id },
   });
 
-  res.status(200).json({
-    message: 'Member added successfully',
-    groupId: group._id,
-    memberId: targetUser._id,
-    name: targetUser.name,
-    isPlaceholder: targetUser.isPlaceholder,
-  });
+res.status(200).json({
+  message: 'Member added successfully',
+  groupId: group._id,
+  id: targetUser._id,
+  name: targetUser.name,
+  email: targetUser.email ?? null,
+  phone: targetUser.phone ?? null,
+  isPlaceholder: targetUser.isPlaceholder,
+});
 };
 
 // ── Leave a group ─────────────────────────────────────────────────────────────
