@@ -177,35 +177,33 @@ export const getGroupBalances = async (req, res) => {
         net: cents / 100,
       }));
 
-    // ── 4. Build debts based on balanceMode ──────────────────
+    // ── 4. Build debts — always compute both arrays regardless of balanceMode.
+    // `settlements` is always the simplified list; `pairwise` is always the raw direct-debt list.
     const balanceMode = group.balanceMode ?? 'pairwise';
     const memberIds = group.members.map(m => m.toString());
 
-    let debts = [];
-    if (balanceMode === 'pairwise') {
-      const pairwiseRaw = calculatePairwiseDebts(memberIds, expenses);
-      debts = pairwiseRaw.map(({ from, to, amount }) => ({
-        from,
-        fromName: nameMap[from] || 'Unknown',
-        to,
-        toName: nameMap[to] || 'Unknown',
-        amount,
-      })).sort((a, b) => b.amount - a.amount);
-    } else {
-      const simplifiedRaw = simplifyDebts(balancesCents);
-      debts = simplifiedRaw.map(({ from, to, amount }) => ({
-        from,
-        fromName: nameMap[from] || 'Unknown',
-        to,
-        toName: nameMap[to] || 'Unknown',
-        amount,
-      }));
-    }
+    const pairwiseRaw = calculatePairwiseDebts(memberIds, expenses);
+    const pairwiseDebts = pairwiseRaw.map(({ from, to, amount }) => ({
+      from,
+      fromName: nameMap[from] || 'Unknown',
+      to,
+      toName: nameMap[to] || 'Unknown',
+      amount,
+    })).sort((a, b) => b.amount - a.amount);
+
+    const simplifiedRaw = simplifyDebts(balancesCents);
+    const simplifiedDebts = simplifiedRaw.map(({ from, to, amount }) => ({
+      from,
+      fromName: nameMap[from] || 'Unknown',
+      to,
+      toName: nameMap[to] || 'Unknown',
+      amount,
+    }));
 
     res.json({
       balances,
-      settlements: balanceMode === 'simplified' ? debts : [],
-      pairwise: balanceMode === 'pairwise' ? debts : [],
+      settlements: simplifiedDebts, // always the simplified list
+      pairwise: pairwiseDebts,       // always the raw direct-debt list
       balanceMode,
     });
 

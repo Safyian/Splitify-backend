@@ -11,7 +11,10 @@
       "Bash(node --check src/controllers/auth.controller.js)",
       "Bash(node --check src/routes/auth.routes.js)",
       "Bash(node --check src/scripts/backfill-hashes.js)",
-      "Bash(node src/scripts/backfill-hashes.js)"
+      "Bash(node src/scripts/backfill-hashes.js)",
+      "Bash(find /Users/bunny/Desktop/FluttApps -name \"settlement_breakdown_sheet.dart\" -o -name \"balances_view.dart\" 2>/dev/null)",
+      "Read(//Users/bunny/Desktop/FluttApps/**)",
+      "Bash(node --input-type=module)"
     ]
   }
 }
