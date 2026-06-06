@@ -243,7 +243,8 @@ export const removeFriend = async (req, res) => {
       if (friend.isPlaceholder) {
         const inGroup    = await Group.exists({ members: friendId });
         const inFriends  = await User.exists({ friends: friendId });
-        if (!inGroup && !inFriends) {
+        const inExpense  = await Expense.exists({ 'splits.user': friendId });
+        if (!inGroup && !inFriends && !inExpense) {
           await User.deleteOne({ _id: friendId });
         }
       }
