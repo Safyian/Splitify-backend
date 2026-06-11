@@ -14,6 +14,7 @@ import {
   validateExactSplits
 } from "../validators/expense.validator.js";
 import { logActivity } from '../utils/activity.helper.js';
+import { applySettlementState } from '../utils/settlement.helper.js';
 
 
 // ── Shared helper ─────────────────────────────────────────── ← ✅ FIRST
@@ -78,6 +79,8 @@ export const createExpense = async (req, res) => {
       splitType,
       splits: finalSplits
     });
+
+    await applySettlementState(group);
 
     await logActivity({
     type: 'expense_added',
@@ -281,17 +284,7 @@ export const settleUp = async (req, res) => {
       splits: [{ user: splitUser, amount, percentage: null }]
     });
 
-    const expensesAfter = await Expense.find({ group: groupId })
-      .populate("paidBy", "name")
-      .populate("splits.user", "name");
-
-    const balancesAfter = calculateGroupBalances(group, expensesAfter);
-    const allSettled = Object.values(balancesAfter).every(b => Math.abs(b) < 0.01);
-
-    if (allSettled) {
-      group.settledAt = new Date();
-      await group.save();
-    }
+    await applySettlementState(group);
 
     await settlement.populate([
       { path: "paidBy", select: "name email" },
@@ -340,6 +333,13 @@ export const updateExpense = async (req, res) => {
       return res.status(400).json({ message: "Settlements cannot be edited" });
     }
 
+    if (expense.settledCycleId != null) {
+      return res.status(400).json({
+        message: "This is in a settled cycle and can't be edited. Add an adjustment instead.",
+        code: "SETTLED_LOCKED",
+      });
+    }
+
     validateExpenseInput({ description, amount, splitType, splits });
     validateGroupMembers(group, paidBy, splits);
 
@@ -371,18 +371,6 @@ export const updateExpense = async (req, res) => {
       .populate("paidBy", "name email")
       .populate("splits.user", "name email");
 
-      ///
-
-      const check = await Expense.findById(expenseId)
-  .populate("splits.user", "name");
-
-console.log("DB splits after update:");
-check.splits.forEach(s => {
-  console.log(`  ${s.user.name}: $${s.amount}`);
-});
-
-
-      ///
     await logActivity({
     type: 'expense_updated',
     actor: req.user,
@@ -426,6 +414,13 @@ export const updateSettlement = async (req, res) => {
       return res.status(404).json({ message: "Settlement not found" });
     }
 
+    if (settlement.settledCycleId != null) {
+      return res.status(400).json({
+        message: "This is in a settled cycle and can't be edited. Add an adjustment instead.",
+        code: "SETTLED_LOCKED",
+      });
+    }
+
     const maxAllowedDollars = await getMaxForSettlement(group, settlement);
 
     if (maxAllowedDollars <= 0) {
@@ -444,15 +439,7 @@ export const updateSettlement = async (req, res) => {
     settlement.splits[0].amount = amount;
     await settlement.save();
 
-    const expensesAfter = await Expense.find({ group: groupId })
-      .populate("paidBy")
-      .populate("splits.user");
-
-    const balancesAfter = calculateGroupBalances(group, expensesAfter);
-    const allSettled = Object.values(balancesAfter).every(b => Math.abs(b) < 0.01);
-
-    group.settledAt = allSettled ? new Date() : null;
-    await group.save();
+    await applySettlementState(group);
 
     await settlement.populate([
       { path: "paidBy", select: "name email" },
@@ -481,6 +468,13 @@ export const deleteExpense = async (req, res) => {
     const expense = await Expense.findOne({ _id: expenseId, group: groupId });
     if (!expense) return res.status(404).json({ message: "Expense not found" });
 
+    if (expense.settledCycleId != null) {
+      return res.status(400).json({
+        message: "This is in a settled cycle and can't be edited. Add an adjustment instead.",
+        code: "SETTLED_LOCKED",
+      });
+    }
+
     await expense.deleteOne();
 
     await logActivity({
@@ -493,19 +487,7 @@ export const deleteExpense = async (req, res) => {
       },
     });
 
-    if (group.settledAt) {
-      const expenses = await Expense.find({ group: groupId })
-        .populate("paidBy")
-        .populate("splits.user");
-
-      const balances = calculateGroupBalances(group, expenses);
-      const allSettled = Object.values(balances).every(b => Math.abs(b) < 0.01);
-
-      if (!allSettled) {
-        group.settledAt = null;
-        await group.save();
-      }
-    }
+    await applySettlementState(group);
 
     res.status(200).json({ message: "Expense deleted successfully" });
 

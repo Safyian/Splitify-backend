@@ -48,7 +48,13 @@ const expenseSchema = new mongoose.Schema(
           default: null  // only set for percentage split type
         }
       }
-    ]
+    ],
+
+    settledCycleId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true
+    }
   },
   { timestamps: true }
 );
