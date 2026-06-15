@@ -16,6 +16,8 @@ import {
   showResetForm,
   resetPassword,
   checkContacts,
+  googleAuth,
+  appleAuth,
 } from '../controllers/auth.controller.js';
 import { inviteFriend } from '../controllers/friends.controller.js';
 import asyncHandler from '../utils/asyncHandler.js';
@@ -46,6 +48,9 @@ router.post('/auth/resend-verification', asyncHandler(resendVerification));
 router.post('/auth/send-phone-otp', authLimiter, asyncHandler(sendPhoneOtp));
 router.post('/auth/verify-phone-otp', authLimiter, asyncHandler(verifyPhoneOtp));
 router.post('/auth/login-phone', authLimiter, asyncHandler(loginWithPhone));
+
+router.post('/auth/google', authLimiter, asyncHandler(googleAuth));
+router.post('/auth/apple', authLimiter, asyncHandler(appleAuth));
 
 router.post('/users/check-contacts', protect, asyncHandler(checkContacts));
 router.post('/friends/invite', protect, asyncHandler(inviteFriend));

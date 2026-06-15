@@ -38,10 +38,22 @@ const userSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: function () { return !this.isPlaceholder; },
+    // Required for normal email/phone accounts, but NOT for placeholders or
+    // social (Google/Apple) accounts, which authenticate via the provider.
+    required: function () {
+      return !this.isPlaceholder && !this.googleId && !this.appleId;
+    },
     select: false
   },
   isPlaceholder: { type: Boolean, default: false },
+  googleId: {
+    type: String,
+    default: null,
+  },
+  appleId: {
+    type: String,
+    default: null,
+  },
   friends: [
     {
       type: mongoose.Schema.Types.ObjectId,
@@ -105,6 +117,16 @@ userSchema.index(
 userSchema.index(
   { phone: 1 },
   { unique: true, partialFilterExpression: { phone: { $type: 'string' } } }
+);
+// Social provider ids — unique only when a real string is present, so the many
+// users with null googleId/appleId never collide (same pattern as email/phone).
+userSchema.index(
+  { googleId: 1 },
+  { unique: true, partialFilterExpression: { googleId: { $type: 'string' } } }
+);
+userSchema.index(
+  { appleId: 1 },
+  { unique: true, partialFilterExpression: { appleId: { $type: 'string' } } }
 );
 
 const User = mongoose.model('User', userSchema);

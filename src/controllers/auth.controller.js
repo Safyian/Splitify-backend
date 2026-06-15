@@ -7,6 +7,75 @@ import { generateToken } from '../utils/token.js';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../utils/email.helper.js';
 import { sendOtp, generateOtp } from '../utils/sms.helper.js';
 import { hashContact } from '../utils/hash.helper.js';
+import { verifyGoogleToken, verifyAppleToken } from '../utils/social_verify.js';
+import { resolveSocialUser } from '../utils/social_auth.helper.js';
+
+/* ================================
+   SOCIAL AUTH (Google / Apple)
+================================ */
+
+// Shared login response shape — identical to email/phone login so the Flutter
+// client treats every sign-in path the same way.
+const authResponse = (res, user) =>
+  res.status(200).json({
+    token: generateToken(user._id),
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email ?? null,
+      phone: user.phone ?? null,
+    },
+  });
+
+/*
+ * POST /auth/google   body: { idToken }
+ * In SOCIAL_VERIFY_MODE=mock, idToken is a decoded payload object, e.g.:
+ *   curl -X POST localhost:8080/auth/google -H 'Content-Type: application/json' \
+ *     -d '{"idToken":{"sub":"g-123","email":"a@b.com","email_verified":true,"name":"Ada"}}'
+ */
+export const googleAuth = async (req, res) => {
+  const { idToken } = req.body;
+  if (!idToken) {
+    res.status(400);
+    throw new Error('idToken is required');
+  }
+
+  let profile;
+  try {
+    profile = await verifyGoogleToken(idToken);
+  } catch (err) {
+    res.status(401);
+    throw new Error(`Google sign-in failed: ${err.message}`);
+  }
+
+  const user = await resolveSocialUser(profile);
+  return authResponse(res, user);
+};
+
+/*
+ * POST /auth/apple   body: { idToken, name? }
+ * `name` is only present on Apple's FIRST authorization. In mock mode:
+ *   curl -X POST localhost:8080/auth/apple -H 'Content-Type: application/json' \
+ *     -d '{"idToken":{"sub":"a-123","email":"a@b.com","email_verified":true},"name":"Ada"}'
+ */
+export const appleAuth = async (req, res) => {
+  const { idToken, name } = req.body;
+  if (!idToken) {
+    res.status(400);
+    throw new Error('idToken is required');
+  }
+
+  let profile;
+  try {
+    profile = await verifyAppleToken(idToken, name);
+  } catch (err) {
+    res.status(401);
+    throw new Error(`Apple sign-in failed: ${err.message}`);
+  }
+
+  const user = await resolveSocialUser(profile);
+  return authResponse(res, user);
+};
 
 /* ================================
    REGISTER
