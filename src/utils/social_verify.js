@@ -34,6 +34,13 @@
  *   `sub` is required in mock mode (it becomes providerId). Apple's hidden-relay
  *   case is simulated by omitting `email`.
  */
+import { OAuth2Client } from 'google-auth-library';
+
+const GOOGLE_WEB_CLIENT_ID =
+  process.env.GOOGLE_WEB_CLIENT_ID ||
+  '404438906252-1busgkil24ede462vfbqd5pq1tieu8jl.apps.googleusercontent.com';
+const googleClient = new OAuth2Client(GOOGLE_WEB_CLIENT_ID);
+
 
 const isMockMode = () =>
   process.env.SOCIAL_VERIFY_MODE === 'mock' ||
@@ -70,15 +77,12 @@ const toProfile = (provider, claims, fallbackName) => {
  */
 export const verifyGoogleToken = async (idToken) => {
   if (!isMockMode()) {
-    // TODO(real impl): verify with google-auth-library —
-    //   const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-    //   const ticket = await client.verifyIdToken({
-    //     idToken,
-    //     audience: process.env.GOOGLE_CLIENT_ID,
-    //   });
-    //   const payload = ticket.getPayload();   // { sub, email, email_verified, name, ... }
-    //   return toProfile('google', payload);
-    throw new Error('Google verification not configured');
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: GOOGLE_WEB_CLIENT_ID,
+    });
+    const payload = ticket.getPayload(); // { sub, email, email_verified, name, ... }
+    return toProfile('google', payload);
   }
   return toProfile('google', idToken);
 };
