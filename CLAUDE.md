@@ -94,7 +94,7 @@ All required in a `.env` file at the project root:
 
 | Variable | Description |
 |---|---|
-| `PORT` | Server port. Defaults to `8080` if not set |
+| `PORT` | Server port. Defaults to `3000` if not set |
 | `MONGO_URI` | MongoDB connection string |
 | `JWT_SECRET` | Secret used to sign and verify JWTs |
 | `APP_URL` | Base URL of this server (e.g. `https://api.splitify.com`). Used to build email verification links |

@@ -149,12 +149,12 @@ export const leaveGroup = async (req, res) => {
   const balances = calculateGroupBalances(group, expenses);
   const userBalance = balances[req.user._id.toString()];
 
-  if (userBalance !== 0) {
-    return res.status(400).json({
-      message: 'You must settle all balances before leaving the group',
-      balance: userBalance,
-    });
-  }
+  if (Math.abs(userBalance ?? 0) >= 1) {   // >= 1 cent, consistent with allSettled checks
+  return res.status(400).json({
+    message: 'You must settle all balances before leaving the group',
+    balance: userBalance,
+  });
+}
 
   await logActivity({
     type: 'group_left',
