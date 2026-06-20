@@ -70,7 +70,7 @@ export const resolveSocialUser = async ({ provider, providerId, email, name, ema
 
   // 4 — No match (or no email at all, e.g. Apple hidden relay) → CREATE.
   const user = new User({
-    name: name?.trim() || 'Splitify User',
+    name: name?.trim() || 'Splittify User',
     [idField]: providerId,
     ...(normalisedEmail ? { email: normalisedEmail } : {}),
     isVerified: !!normalisedEmail && emailVerified,

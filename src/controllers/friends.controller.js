@@ -133,7 +133,7 @@ export const addFriend = async (req, res) => {
 
     const userToAdd = await User.findOne({ email, isPlaceholder: { $ne: true } });
     if (!userToAdd) {
-      return res.status(404).json({ message: "No Splitify account found with that email" });
+      return res.status(404).json({ message: "No Splittify account found with that email" });
     }
 
     const me = await User.findById(req.user._id);
@@ -284,7 +284,7 @@ export const inviteFriend = async (req, res) => {
     if (target && !target.isPlaceholder) {
       // Already a real registered user — tell client to use addFriendById instead
       return res.status(400).json({
-        message: 'This person is already on Splitify. Add them as a friend instead.',
+        message: 'This person is already on Splittify. Add them as a friend instead.',
         isRegistered: true,
         userId: target._id,
         name: target.name,

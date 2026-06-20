@@ -234,7 +234,8 @@ export const getMe = async (req, res) => {
     user: {
       id: req.user._id,
       email: req.user.email,
-      name: req.user.name
+      name: req.user.name,
+      phone: req.user.phone ?? null
     }
   });
 };
@@ -252,13 +253,13 @@ export const updateMe = async (req, res) => {
       req.user._id,
       { name: name.trim() },
       { new: true }
-    ).select('id name email');
+    ).select('id name email phone');
 
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     res.json({
       valid: true,
-      user: { id: user._id, name: user.name, email: user.email },
+      user: { id: user._id, name: user.name, email: user.email, phone: user.phone ?? null },
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -323,7 +324,7 @@ export const verifyEmail = async (req, res) => {
       <head>
         <meta charset="UTF-8"/>
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-        <title>Verification Failed — Splitify</title>
+        <title>Verification Failed — Splittify</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body {
@@ -386,10 +387,10 @@ export const verifyEmail = async (req, res) => {
           <h1>Link expired or invalid</h1>
           <p>
             This verification link has expired or has already been used.
-            Open the Splitify app and request a new verification email.
+            Open the Splittify app and request a new verification email.
           </p>
-          <a href="splitify://resend-verification" class="btn">
-            Open Splitify
+          <a href="https://splittify.app" class="btn">
+            Open Splittify
           </a>
         </div>
       </body>
@@ -409,7 +410,7 @@ export const verifyEmail = async (req, res) => {
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-      <title>Email Verified — Splitify</title>
+      <title>Email Verified — Splittify</title>
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -477,14 +478,14 @@ export const verifyEmail = async (req, res) => {
         <div class="icon">✅</div>
         <h1>Email verified!</h1>
         <p>
-          Your Splitify account is now active.
+          Your Splittify account is now active.
           Open the app and sign in to start splitting expenses.
         </p>
-        <a href="splitify://login" class="btn">
-          Open Splitify
+        <a href="https://splittify.app" class="btn">
+          Open Splittify
         </a>
         <p class="hint">
-          If the button doesn't work, open the Splitify app manually and sign in.
+          If the button doesn't work, open the Splittify app manually and sign in.
         </p>
       </div>
     </body>
@@ -729,7 +730,7 @@ const resetExpiredHtml = `
   <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Link Expired — Splitify</title>
+    <title>Link Expired — Splittify</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       body {
@@ -762,9 +763,9 @@ const resetExpiredHtml = `
       <h1>Link expired or invalid</h1>
       <p>
         This password reset link has expired or has already been used.
-        Open the Splitify app and request a new reset email.
+        Open the Splittify app and request a new reset email.
       </p>
-      <a href="splitify://forgot-password" class="btn">Open Splitify</a>
+      <a href="https://splittify.app" class="btn">Open Splittify</a>
     </div>
   </body>
   </html>
@@ -780,7 +781,7 @@ const buildResetFormHtml = (token, errorMessage = '') => {
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-      <title>Reset Password — Splitify</title>
+      <title>Reset Password — Splittify</title>
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -941,7 +942,7 @@ export const resetPassword = async (req, res) => {
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-      <title>Password Reset — Splitify</title>
+      <title>Password Reset — Splittify</title>
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -973,9 +974,9 @@ export const resetPassword = async (req, res) => {
       <div class="card">
         <div class="icon">✅</div>
         <h1>Password updated!</h1>
-        <p>Your Splitify password has been changed. Open the app and sign in with your new password.</p>
-        <a href="splitify://login" class="btn">Open Splitify</a>
-        <p class="hint">If the button doesn't open the app, launch Splitify manually and sign in.</p>
+        <p>Your Splittify password has been changed. Open the app and sign in with your new password.</p>
+        <a href="https://splittify.app" class="btn">Open Splittify</a>
+        <p class="hint">If the button doesn't open the app, launch Splittify manually and sign in.</p>
       </div>
     </body>
     </html>
