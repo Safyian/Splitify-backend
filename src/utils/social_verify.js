@@ -35,6 +35,8 @@
  *   case is simulated by omitting `email`.
  */
 import { OAuth2Client } from 'google-auth-library';
+import jwt from 'jsonwebtoken';
+import jwksClient from 'jwks-rsa';
 
 const GOOGLE_WEB_CLIENT_ID =
   process.env.GOOGLE_WEB_CLIENT_ID ||
@@ -93,15 +95,36 @@ export const verifyGoogleToken = async (idToken) => {
  * @param {string} [name]          Apple only sends the name on the FIRST auth, in the
  *                                 request body — pass it through so we can persist it.
  */
+
+const appleJwks = jwksClient({
+  jwksUri: 'https://appleid.apple.com/auth/keys',
+  cache: true,
+  cacheMaxAge: 24 * 60 * 60 * 1000,
+});
+
+const getAppleKey = (header) =>
+  new Promise((resolve, reject) => {
+    appleJwks.getSigningKey(header.kid, (err, key) => {
+      if (err) return reject(err);
+      resolve(key.getPublicKey());
+    });
+  });
+
+const APPLE_BUNDLE_ID = process.env.APPLE_BUNDLE_ID || 'app.splittify';
+
 export const verifyAppleToken = async (idToken, name) => {
   if (!isMockMode()) {
-    // TODO(real impl): verify the JWT against Apple's JWKS —
-    //   1. fetch https://appleid.apple.com/auth/keys (cache the JWKS)
-    //   2. jwt.verify(idToken, matchingKey, { algorithms: ['RS256'] })
-    //   3. assert payload.aud === process.env.APPLE_CLIENT_ID
-    //   4. assert payload.iss === 'https://appleid.apple.com'
-    //   return toProfile('apple', payload, name);
-    throw new Error('Apple verification not configured');
+    const decoded = jwt.decode(idToken, { complete: true });
+    if (!decoded) throw new Error('Invalid Apple token');
+    const publicKey = await getAppleKey(decoded.header);
+    const payload = jwt.verify(idToken, publicKey, { algorithms: ['RS256'] });
+    if (payload.iss !== 'https://appleid.apple.com') {
+      throw new Error('Invalid Apple issuer');
+    }
+    if (payload.aud !== APPLE_BUNDLE_ID) {
+      throw new Error('Invalid Apple audience');
+    }
+    return toProfile('apple', payload, name);
   }
   return toProfile('apple', idToken, name);
 };
