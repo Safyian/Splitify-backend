@@ -496,34 +496,33 @@ export const verifyEmail = async (req, res) => {
 /* ================================
    RESEND VERIFICATION EMAIL
 ================================ */
-
+// resendVerification — only regenerate if missing/expired; otherwise reuse
 export const resendVerification = async (req, res) => {
   const { email } = req.body;
-
   if (!email) {
     res.status(400);
     throw new Error('Email is required');
   }
-
   const user = await User.findOne({ email: email.toLowerCase().trim() })
     .select('+verificationToken +verificationTokenExpiry');
-
   if (!user) {
-    // Return success to prevent email enumeration
     return res.status(200).json({ message: 'If that email exists, a verification link has been sent.' });
   }
-
   if (user.isVerified) {
     res.status(400);
     throw new Error('This account is already verified.');
   }
 
-  const token = user.generateVerificationToken();
-  await user.save();
+  // Reuse existing valid token; only regenerate if missing or expired
+  if (!user.verificationToken ||
+      !user.verificationTokenExpiry ||
+      user.verificationTokenExpiry < new Date()) {
+    user.generateVerificationToken();
+    await user.save();
+  }
 
-  const verificationUrl = `${process.env.APP_URL}/auth/verify/${token}`;
+  const verificationUrl = `${process.env.APP_URL}/auth/verify/${user.verificationToken}`;
   await sendVerificationEmail({ to: user.email, name: user.name, verificationUrl });
-
   res.status(200).json({ message: 'Verification email resent. Please check your inbox.' });
 };
 
